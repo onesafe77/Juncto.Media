@@ -9,9 +9,9 @@ export default function Pillars() {
       num: "01",
       tagColor: "bg-[#4A5FD4]",
       label: "Pilar Pertama", title: "Kebijakan", category: "kebijakan" as const,
-      image: "https://picsum.photos/seed/kebijakan/400/300",
+      image: "https://picsum.photos/seed/kebijakan/800/600",
       headline: "RUU Penyiaran: Ancaman Baru Kebebasan Pers atau Regulasi Masa Depan?",
-      snippet: "Analisis mendalam mengenai pasal-pasal kontroversial dalam draf terbaru RUU Penyiaran yang memicu perdebatan publik secara luas.",
+      snippet: "Analisis mendalam mengenai pasal-pasal kontroversial dalam draf terbaru RUU Penyiaran yang memicu perdebatan publik secara luas. Tim Riset menemukan potensi pembungkaman terhadap pers independen melalui pasal-pasal karet.",
       time: "2 jam lalu",
       author: "Tim Riset Regulasi"
     },
@@ -21,31 +21,28 @@ export default function Pillars() {
       label: "Pilar Kedua", title: "Anggaran", category: "anggaran" as const,
       image: "https://picsum.photos/seed/anggaran/400/300",
       headline: "Jejak Dana Desa yang Menguap di Proyek Fiktif Infrastruktur Daerah",
-      snippet: "Investigasi mengungkap kebocoran anggaran hingga miliaran rupiah pada proyek-proyek infrastruktur fiktif di berbagai desa.",
-      time: "5 jam lalu",
-      author: "Divisi Audit Finansial"
+      time: "5 jam lalu"
     },
     {
       num: "03",
       tagColor: "bg-[#C41A1A]",
       label: "Pilar Ketiga", title: "Hukum", category: "hukum" as const,
       image: "https://picsum.photos/seed/hukum/400/300",
-      headline: "Skandal Makelar Kasus: Bagaimana Putusan Kasasi Bisa Dikendalikan",
-      snippet: "Membongkar jaringan mafia peradilan yang melibatkan oknum panitera hingga hakim dalam mengatur putusan kasasi tingkat akhir.",
-      time: "8 jam lalu",
-      author: "Tim Investigasi Hukum"
+      headline: "Skandal Makelar Kasus: Bagaimana Putusan Kasasi Bisa Dikendalikan Tingkat Atas",
+      time: "8 jam lalu"
     },
     {
       num: "04",
       tagColor: "bg-[#C47A00]",
       label: "Pilar Keempat", title: "Keadilan", category: "keadilan" as const,
       image: "https://picsum.photos/seed/keadilan/400/300",
-      headline: "Gusuran Paksa Warga Pesisir Demi Ambisi Proyek Strategis Nasional",
-      snippet: "Liputan langsung dari lapangan menyoroti pengabaian hak asasi manusia dan ganti rugi yang tidak layak bagi warga pesisir.",
-      time: "1 hari lalu",
-      author: "Desk Sosial Kemasyarakatan"
+      headline: "Gusuran Paksa Warga Pesisir Demi Ambisi Proyek Strategis Nasional Triliunan",
+      time: "1 hari lalu"
     }
   ];
+
+  const featured = PILLARS[0];
+  const sidebars = PILLARS.slice(1);
 
   const STATS = [
     { num: "500+", label: "Investigasi" },
@@ -53,19 +50,6 @@ export default function Pillars() {
     { num: "4", label: "Pilar Pengawasan" },
     { num: "34", label: "Kementerian" }
   ];
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1 }
-    }
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 30 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
-  };
 
   return (
     <section className="py-12 md:py-[72px] bg-[#F4F6FA] font-sans">
@@ -95,58 +79,80 @@ export default function Pillars() {
           </p>
         </motion.div>
 
-        {/* Grid 4 Kartu (News Display) */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-100px" }}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-[40px] lg:mb-[52px]"
-        >
-          {PILLARS.map((pillar, idx) => (
-            <motion.div
-              key={idx}
-              variants={itemVariants}
-              className="group bg-white rounded-[16px] overflow-hidden border border-[#E8EFF9] hover:border-[#C5D3E8] hover:shadow-[0_8px_30px_rgba(0,48,135,0.08)] transition-all duration-300 flex flex-col cursor-pointer"
-            >
-              {/* Image Section */}
-              <div className="relative h-[180px] lg:h-[200px] overflow-hidden">
-                <ArticleImage src={pillar.image} alt={pillar.headline} variant="grid" category={pillar.category as any} />
-                <div className="absolute top-4 left-4">
-                  <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full text-white uppercase tracking-[0.08em] ${pillar.tagColor} shadow-sm backdrop-blur-sm`}>
-                    {pillar.title}
-                  </span>
-                </div>
+        {/* Editorial News Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 mb-[40px] lg:mb-[52px]">
+          {/* Featured Article (lg: 8 columns) */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+            transition={{ duration: 0.6 }}
+            className="lg:col-span-8 group cursor-pointer"
+          >
+            <div className="relative rounded-[16px] overflow-hidden mb-5">
+              <ArticleImage src={featured.image} alt={featured.headline} variant="featured" category={featured.category as any} />
+              <div className="absolute top-5 left-5">
+                <span className={`text-[10px] font-bold px-3 py-1.5 rounded-full text-white uppercase tracking-[0.08em] ${featured.tagColor} shadow-sm backdrop-blur-sm bg-opacity-90`}>
+                  {featured.title}
+                </span>
               </div>
+            </div>
 
-              {/* Content Section */}
-              <div className="p-5 flex flex-col flex-grow">
-                <div className="text-[11px] font-bold tracking-[0.12em] text-[#8899AA] uppercase mb-2">
-                  {pillar.label}
+            <h3 className="text-[24px] md:text-[32px] font-black tracking-[-0.01em] text-[#0D1B3E] mb-3 leading-[1.25] group-hover:text-[#003087] transition-colors">
+              {featured.headline}
+            </h3>
+
+            <p className="text-[15px] lg:text-[16px] text-[#6B7A99] leading-[1.7] mb-5">
+              {featured.snippet}
+            </p>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-medium text-[#0D1B3E]">
+                Oleh <span className="font-bold">{featured.author}</span>
+              </span>
+              <div className="flex items-center gap-1.5 text-[#8899AA] text-[13px] font-medium">
+                <Clock size={14} />
+                {featured.time}
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Sidebar Articles (lg: 4 columns) */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="lg:col-span-4 flex flex-col gap-6"
+          >
+            <div className="h-[2px] bg-[#E8EFF9] w-full mb-2 hidden lg:block"></div>
+
+            {sidebars.map((item, idx) => (
+              <div key={idx} className="group cursor-pointer flex flex-col sm:flex-row lg:flex-col xl:flex-row gap-4 pb-6 border-b border-[#E8EFF9] border-dashed last:border-0 last:pb-0">
+                {/* Thumbnail */}
+                <div className="relative w-full sm:w-[140px] lg:w-full xl:w-[120px] h-[200px] sm:h-[100px] lg:h-[180px] xl:h-[90px] shrink-0 rounded-[12px] overflow-hidden">
+                  <ArticleImage src={item.image} alt={item.headline} variant="thumb" category={item.category as any} />
                 </div>
 
-                <h3 className="text-[18px] font-bold tracking-tight text-[#0D1B3E] mb-3 leading-[1.4] group-hover:text-[#003087] transition-colors line-clamp-3">
-                  {pillar.headline}
-                </h3>
-
-                <p className="text-[14px] text-[#6B7A99] leading-[1.6] mb-4 line-clamp-3">
-                  {pillar.snippet}
-                </p>
-
-                {/* Footer Section */}
-                <div className="mt-auto pt-4 border-t border-[#F0F4FB] flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-[#0D1B3E]">
-                    Oleh <span className="font-bold">{pillar.author}</span>
+                {/* Content */}
+                <div className="flex flex-col flex-grow justify-center py-1">
+                  <span className={`text-[9px] font-bold px-2 py-1 rounded text-white uppercase tracking-[0.08em] ${item.tagColor} mb-2 self-start bg-opacity-90`}>
+                    {item.title}
                   </span>
-                  <div className="flex items-center gap-1.5 text-[#8899AA] text-[11px] font-medium">
+
+                  <h4 className="text-[15px] font-bold tracking-tight text-[#0D1B3E] mb-2 leading-[1.4] group-hover:text-[#003087] transition-colors line-clamp-3">
+                    {item.headline}
+                  </h4>
+
+                  <div className="flex items-center gap-1.5 text-[#8899AA] text-[11px] font-medium mt-auto">
                     <Clock size={12} />
-                    {pillar.time}
+                    {item.time}
                   </div>
                 </div>
               </div>
-            </motion.div>
-          ))}
-        </motion.div>
+            ))}
+          </motion.div>
+        </div>
 
         {/* Bottom Stats Bar */}
         <div className="border-t border-[#E8EFF9] pt-[32px] md:pt-[44px]">
@@ -169,7 +175,7 @@ export default function Pillars() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
-              <span className="hidden sm:inline text-[13px] text-[#8899AA]">Mulai baca sekarang —</span>
+              <span className="hidden sm:inline text-[13px] text-[#8899AA]">Telusuri investigasi lainnya —</span>
               <Link
                 to="/workspace"
                 className="w-full sm:w-auto bg-[#003087] text-white px-[20px] py-[12px] lg:py-[10px] rounded-[8px] font-bold text-sm hover:bg-[#002266] transition-colors text-center"
@@ -181,6 +187,6 @@ export default function Pillars() {
         </div>
 
       </div>
-    </section>
+    </section >
   );
 }
