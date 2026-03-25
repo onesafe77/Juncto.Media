@@ -7,9 +7,9 @@ export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#003087] text-white pt-[120px] pb-[80px] lg:pt-[160px] lg:pb-[160px] px-[20px] lg:px-0">
       <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/newsroom/1920/1080?blur=10')] opacity-20 mix-blend-overlay"></div>
-      
+
       <div className="relative z-10 w-full max-w-[800px] mx-auto px-5 lg:px-0 py-10 lg:py-0 flex flex-col items-center text-center">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: false }}
@@ -20,7 +20,7 @@ export default function Hero() {
           LIVE &middot; Dual Oversight Media Platform
         </motion.div>
 
-        <motion.h1 
+        <motion.h1
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: false }}
@@ -31,19 +31,8 @@ export default function Hero() {
           Mengawal <span className="text-[#E31B23] underline decoration-[#E31B23]/30 underline-offset-4 lg:underline-offset-8">Keadilan.</span>
         </motion.h1>
 
-        <motion.p 
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: false }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-[15px] lg:text-lg text-white/80 mb-8 lg:mb-10 leading-relaxed max-w-[680px] mx-auto"
-        >
-          Platform media investigasi berbasis data dan AI yang menghubungkan
-          kebijakan negara, anggaran publik, penegakan hukum, dan dampaknya
-          terhadap keadilan masyarakat.
-        </motion.p>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: false }}
@@ -59,7 +48,7 @@ export default function Hero() {
           </Link>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: false }}
@@ -85,7 +74,7 @@ export default function Hero() {
           </div>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: false }}
@@ -103,7 +92,7 @@ export default function Hero() {
           </div>
         </motion.div>
       </div>
-      
+
       <Ticker />
     </section>
   );
