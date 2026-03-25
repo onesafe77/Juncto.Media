@@ -24,6 +24,7 @@ import PengaduanPage from './pages/PengaduanPage';
 import KartuAnggota from './pages/KartuAnggota';
 import ValidasiPublik from './pages/ValidasiPublik';
 import AdminPanel from './pages/AdminPanel';
+import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   return (
@@ -32,8 +33,16 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/validasi" element={<ValidasiPublik />} />
-        <Route path="/admin" element={<AdminPanel />} />
-        <Route path="/workspace" element={<WorkspaceLayout />}>
+        <Route path="/admin" element={
+          <ProtectedRoute>
+            <AdminPanel />
+          </ProtectedRoute>
+        } />
+        <Route path="/workspace" element={
+          <ProtectedRoute>
+            <WorkspaceLayout />
+          </ProtectedRoute>
+        }>
           <Route index element={<WorkspaceHome />} />
           <Route path="article/:id" element={<ArticleDetail />} />
           <Route path="investigasi" element={<Investigasi />} />

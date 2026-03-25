@@ -1,17 +1,64 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react';
 import Logo from '../components/Logo';
+import { useAuth } from '../lib/auth';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { signIn, signUp } = useAuth();
 
-  const handleAuth = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock auth
-    navigate('/workspace');
+    setError('');
+    setSuccess('');
+    setLoading(true);
+
+    if (!isLogin && password !== confirmPassword) {
+      setError('Kata sandi tidak cocok.');
+      setLoading(false);
+      return;
+    }
+
+    if (!isLogin && password.length < 6) {
+      setError('Kata sandi minimal 6 karakter.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (isLogin) {
+        const { error } = await signIn(email, password);
+        if (error) {
+          setError(error.message === 'Invalid login credentials'
+            ? 'Email atau kata sandi salah.'
+            : error.message);
+        } else {
+          navigate('/workspace');
+        }
+      } else {
+        const { error } = await signUp(email, password, fullName);
+        if (error) {
+          setError(error.message);
+        } else {
+          setSuccess('Akun berhasil dibuat! Silakan cek email Anda untuk verifikasi, atau langsung masuk.');
+          setIsLogin(true);
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'Terjadi kesalahan. Coba lagi.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -19,7 +66,7 @@ export default function AuthPage() {
       {/* Left Panel - Branding */}
       <div className="w-full md:w-1/2 bg-gradient-to-br from-primary to-dark text-white p-8 md:p-16 flex flex-col justify-between relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/legal/1000/1000?blur=10')] opacity-10 mix-blend-overlay"></div>
-        
+
         <div className="relative z-10">
           <Link to="/" className="flex items-center gap-2 mb-16">
             <Logo className="w-12 h-12" />
@@ -41,7 +88,7 @@ export default function AuthPage() {
             </li>
             <li className="flex items-center gap-4 text-lg">
               <CheckCircle2 className="w-6 h-6 text-success shrink-0" />
-              <span>Dukung jurnalisme independen & transparan</span>
+              <span>Dukung jurnalisme independen &amp; transparan</span>
             </li>
           </ul>
         </div>
@@ -73,13 +120,13 @@ export default function AuthPage() {
           <div className="flex mb-8 border-b border-blue-gray/30">
             <button
               className={`flex-1 pb-4 text-center font-heading font-bold text-lg transition-colors ${isLogin ? 'text-primary border-b-2 border-primary' : 'text-text-light hover:text-text-medium'}`}
-              onClick={() => setIsLogin(true)}
+              onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
             >
               Masuk
             </button>
             <button
               className={`flex-1 pb-4 text-center font-heading font-bold text-lg transition-colors ${!isLogin ? 'text-primary border-b-2 border-primary' : 'text-text-light hover:text-text-medium'}`}
-              onClick={() => setIsLogin(false)}
+              onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
             >
               Daftar
             </button>
@@ -94,12 +141,26 @@ export default function AuthPage() {
             </p>
           </div>
 
+          {/* Error/Success Messages */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-medium">
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm font-medium">
+              {success}
+            </div>
+          )}
+
           <form onSubmit={handleAuth} className="space-y-5">
             {!isLogin && (
               <div>
                 <label className="block text-sm font-bold text-dark mb-1.5">Nama Lengkap</label>
                 <input
                   type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
                   className="w-full px-4 py-3 rounded border border-blue-gray/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                   placeholder="Masukkan nama lengkap"
                   required
@@ -111,6 +172,8 @@ export default function AuthPage() {
               <label className="block text-sm font-bold text-dark mb-1.5">Email</label>
               <input
                 type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 rounded border border-blue-gray/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                 placeholder="nama@email.com"
                 required
@@ -122,6 +185,8 @@ export default function AuthPage() {
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-4 py-3 rounded border border-blue-gray/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all pr-12"
                   placeholder="••••••••"
                   required
@@ -134,11 +199,6 @@ export default function AuthPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              {!isLogin && (
-                <div className="mt-2 h-1.5 w-full bg-blue-gray/30 rounded-full overflow-hidden flex">
-                  <div className="h-full w-1/3 bg-accent"></div>
-                </div>
-              )}
             </div>
 
             {!isLogin && (
@@ -147,6 +207,8 @@ export default function AuthPage() {
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     className="w-full px-4 py-3 rounded border border-blue-gray/50 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all pr-12"
                     placeholder="••••••••"
                     required
@@ -167,39 +229,26 @@ export default function AuthPage() {
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" className="w-4 h-4 mt-1 rounded border-blue-gray/50 text-primary focus:ring-primary/20" required />
                 <span className="text-sm text-text-medium leading-relaxed">
-                  Saya setuju dengan <a href="#" className="font-bold text-primary hover:underline">Syarat & Ketentuan</a> serta <a href="#" className="font-bold text-primary hover:underline">Kebijakan Privasi</a> Juncto.Media
+                  Saya setuju dengan <a href="#" className="font-bold text-primary hover:underline">Syarat &amp; Ketentuan</a> serta <a href="#" className="font-bold text-primary hover:underline">Kebijakan Privasi</a> Juncto.Media
                 </span>
               </label>
             )}
 
             <button
               type="submit"
-              className="w-full py-4 rounded bg-primary hover:bg-secondary transition-colors font-bold text-white text-lg shadow-lg shadow-primary/20 mt-6"
+              disabled={loading}
+              className="w-full py-4 rounded bg-primary hover:bg-secondary transition-colors font-bold text-white text-lg shadow-lg shadow-primary/20 mt-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
+              {loading && <Loader2 className="w-5 h-5 animate-spin" />}
               {isLogin ? 'Masuk' : 'Buat Akun'} &rarr;
             </button>
           </form>
-
-          <div className="mt-8 flex items-center gap-4">
-            <div className="flex-1 h-px bg-blue-gray/30"></div>
-            <span className="text-sm font-medium text-text-light uppercase tracking-wider">atau {isLogin ? 'masuk' : 'daftar'} via</span>
-            <div className="flex-1 h-px bg-blue-gray/30"></div>
-          </div>
-
-          <div className="mt-8 grid grid-cols-2 gap-4">
-            <button className="flex items-center justify-center gap-2 py-3 rounded border border-blue-gray/50 hover:bg-off-white transition-colors font-bold text-dark">
-              Google
-            </button>
-            <button className="flex items-center justify-center gap-2 py-3 rounded border border-blue-gray/50 hover:bg-off-white transition-colors font-bold text-dark">
-              LinkedIn
-            </button>
-          </div>
 
           <p className="mt-8 text-center text-text-medium">
             {isLogin ? 'Belum punya akun? ' : 'Sudah punya akun? '}
             <button
               className="font-bold text-primary hover:text-secondary transition-colors"
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => { setIsLogin(!isLogin); setError(''); setSuccess(''); }}
             >
               {isLogin ? 'Daftar sekarang' : 'Masuk di sini'}
             </button>

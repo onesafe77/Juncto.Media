@@ -1,8 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, User, FileText, AlertCircle, Sparkles } from 'lucide-react';
+import { Bot, Send, User, FileText, AlertCircle, Sparkles, Loader2 } from 'lucide-react';
+import { askAI } from '../lib/ai';
+import type { AIMessage } from '../lib/ai';
+
+interface ChatMessage {
+  id: number;
+  type: 'bot' | 'user';
+  content: string;
+  timestamp: string;
+}
 
 export default function AILegal() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 1,
       type: 'bot',
@@ -22,32 +31,53 @@ export default function AILegal() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return;
 
-    const newUserMessage = {
+    const userMessage: ChatMessage = {
       id: messages.length + 1,
       type: 'user',
       content: input,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages([...messages, newUserMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const newBotMessage = {
+    // Build conversation history for OpenRouter
+    const conversationHistory: AIMessage[] = messages
+      .filter(m => m.id > 1) // Skip initial bot greeting
+      .map(m => ({
+        role: m.type === 'user' ? 'user' as const : 'assistant' as const,
+        content: m.content,
+      }));
+
+    conversationHistory.push({ role: 'user', content: input });
+
+    try {
+      const aiResponse = await askAI(conversationHistory);
+
+      const botMessage: ChatMessage = {
         id: messages.length + 2,
         type: 'bot',
-        content: 'Berdasarkan analisis awal, pertanyaan Anda menyangkut ranah Hukum Perdata, khususnya terkait wanprestasi. Saya sedang menyusun referensi pasal yang relevan dari KUHPerdata...',
+        content: aiResponse,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
-      setMessages(prev => [...prev, newBotMessage]);
+
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error: any) {
+      const errorMessage: ChatMessage = {
+        id: messages.length + 2,
+        type: 'bot',
+        content: `Maaf, terjadi kesalahan: ${error.message}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const suggestions = [
@@ -68,7 +98,7 @@ export default function AILegal() {
           <div>
             <h1 className="font-heading font-bold text-dark text-lg sm:text-xl">AI Legal Assistant</h1>
             <p className="text-xs text-text-medium flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online &bull; Didukung oleh Gemini
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span> Online &bull; Didukung oleh OpenRouter AI
             </p>
           </div>
         </div>
@@ -86,27 +116,25 @@ export default function AILegal() {
               {msg.type === 'user' ? <User className="w-5 h-5 text-dark" /> : <Bot className="w-5 h-5" />}
             </div>
             <div className={`max-w-[85%] sm:max-w-[75%] flex flex-col ${msg.type === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`p-4 rounded-2xl ${
-                msg.type === 'user' 
-                  ? 'bg-primary text-white rounded-tr-sm' 
+              <div className={`p-4 rounded-2xl ${msg.type === 'user'
+                  ? 'bg-primary text-white rounded-tr-sm'
                   : 'bg-white border border-blue-gray/30 text-dark rounded-tl-sm shadow-sm'
-              }`}>
-                <p className="text-sm sm:text-base leading-relaxed">{msg.content}</p>
+                }`}>
+                <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
               </div>
               <span className="text-[10px] text-text-light mt-1 px-1">{msg.timestamp}</span>
             </div>
           </div>
         ))}
-        
+
         {isTyping && (
           <div className="flex gap-4">
             <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shrink-0">
               <Bot className="w-5 h-5" />
             </div>
             <div className="bg-white border border-blue-gray/30 p-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-2">
-              <div className="w-2 h-2 bg-blue-gray rounded-full animate-bounce"></div>
-              <div className="w-2 h-2 bg-blue-gray rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              <div className="w-2 h-2 bg-blue-gray rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              <span className="text-sm text-text-medium">Sedang menganalisis...</span>
             </div>
           </div>
         )}
@@ -118,7 +146,7 @@ export default function AILegal() {
         {messages.length === 1 && (
           <div className="flex flex-wrap gap-2 mb-4">
             {suggestions.map((sugg, idx) => (
-              <button 
+              <button
                 key={idx}
                 onClick={() => setInput(sugg)}
                 className="text-xs sm:text-sm bg-off-white hover:bg-blue-gray/20 border border-blue-gray/30 text-text-medium px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
@@ -144,15 +172,8 @@ export default function AILegal() {
               className="w-full bg-off-white border border-blue-gray/30 rounded-xl pl-4 pr-12 py-3 focus:border-primary focus:ring-1 focus:ring-primary outline-none resize-none min-h-[52px] max-h-[120px] text-sm sm:text-base"
               rows={1}
             />
-            <button 
-              type="button" 
-              className="absolute left-3 bottom-3 text-text-medium hover:text-primary transition-colors hidden"
-              title="Unggah Dokumen"
-            >
-              <FileText className="w-5 h-5" />
-            </button>
           </div>
-          <button 
+          <button
             type="submit"
             disabled={!input.trim() || isTyping}
             className="w-[52px] h-[52px] shrink-0 bg-primary hover:bg-secondary disabled:bg-blue-gray/50 disabled:cursor-not-allowed text-white rounded-xl flex items-center justify-center transition-colors"
