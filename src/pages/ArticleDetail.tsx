@@ -1,192 +1,292 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Bookmark, Share2, Printer, Clock, Lock, Bot, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { Bookmark, Share2, Printer, Clock, Lock, Bot, FileText, Loader2, AlertCircle } from 'lucide-react';
 import ArticleImage from '../components/workspace/ArticleImage';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
+import ReactMarkdown from 'react-markdown';
 
 export default function ArticleDetail() {
-  const [isPremium] = useState(false); // Mock state
-  const isInvestigasi = true; // Mock article type
+  const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const [article, setArticle] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchArticle() {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const { data, error: supabaseError } = await supabase
+          .from('articles')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (supabaseError) throw supabaseError;
+        setArticle(data);
+
+        // Increment views
+        if (data) {
+          await supabase
+            .from('articles')
+            .update({ views: (data.views || 0) + 1 })
+            .eq('id', id);
+        }
+
+        // Check bookmark status if user is logged in
+        if (user) {
+          const { data: bookmarkData } = await supabase
+            .from('bookmarks')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('article_id', id)
+            .single();
+          setIsBookmarked(!!bookmarkData);
+
+          // Record reading history
+          await supabase
+            .from('reading_history')
+            .upsert({
+              user_id: user.id,
+              article_id: id,
+              last_read_at: new Date().toISOString()
+            }, { onConflict: 'user_id,article_id' });
+        }
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchArticle();
+  }, [id, user]);
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: article.title,
+          text: article.snippet || article.title,
+          url: window.location.href,
+        });
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Error sharing:', err);
+        }
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        alert('Tautan disalin ke papan klip!');
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    }
+  };
+
+  const toggleBookmark = async () => {
+    if (!user) {
+      alert('Silakan login untuk menyimpan artikel');
+      return;
+    }
+
+    setBookmarkLoading(true);
+    try {
+      if (isBookmarked) {
+        const { error } = await supabase
+          .from('bookmarks')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('article_id', id);
+
+        if (error) throw error;
+        setIsBookmarked(false);
+      } else {
+        const { error } = await supabase
+          .from('bookmarks')
+          .insert({ user_id: user.id, article_id: id });
+
+        if (error) throw error;
+        setIsBookmarked(true);
+      }
+    } catch (err: any) {
+      console.error('Bookmark error:', err);
+      alert('Gagal memperbarui bookmark');
+    } finally {
+      setBookmarkLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-12 h-12 animate-spin text-[#003087] mb-4" />
+        <p className="font-bold text-[#8899AA]">Memuat artikel...</p>
+      </div>
+    );
+  }
+
+  if (error || !article) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto text-center p-6">
+        <AlertCircle className="w-12 h-12 text-[#E31B23] mb-4" />
+        <h2 className="text-2xl font-bold text-[#0D1B3E] mb-2">Artikel Tidak Ditemukan</h2>
+        <p className="text-[#8899AA] mb-8">{error || 'Maaf, artikel yang Anda cari tidak tersedia atau telah dihapus.'}</p>
+        <Link to="/workspace" className="bg-[#003087] text-white px-8 py-3 rounded-lg font-bold hover:bg-[#002566] transition-colors">
+          Kembali ke Beranda
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 lg:p-8 max-w-[1200px] mx-auto">
-      <div className="flex flex-col lg:flex-row gap-8">
-        {/* Main Article */}
-        <div className="flex-1 min-w-0">
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-                Kebijakan
+    <div className="bg-white min-h-screen">
+      {/* Article Header (Wide) */}
+      <div className="p-4 lg:p-8 max-w-[1000px] mx-auto pt-12">
+        <div className="mb-8 text-center">
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <span className="bg-[#E31B23] text-white text-[11px] font-extrabold px-3 py-1 rounded-sm uppercase tracking-[0.1em]">
+              {article.category}
+            </span>
+            <span className="text-[#8899AA] text-sm font-mono">/</span>
+            <Link to="/workspace" className="text-sm text-[#8899AA] hover:text-[#003087] transition-colors font-bold uppercase tracking-wider">Beranda</Link>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-heading font-black text-[#0D1B3E] mb-6 leading-[1.1] tracking-tight">
+            {article.title}
+          </h1>
+
+          <div className="flex flex-wrap justify-center gap-2 mb-8">
+            {article.tags && article.tags.map((tag: string) => (
+              <span key={tag} className="text-[10px] font-bold text-[#003087] bg-[#003087]/5 border border-[#003087]/20 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                #{tag}
               </span>
-              <span className="text-text-light text-sm">&bull;</span>
-              <Link to="/workspace" className="text-sm text-text-medium hover:text-primary transition-colors">Beranda</Link>
-            </div>
-            
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-extrabold text-dark mb-6 leading-tight">
-              RUU Penyiaran: Ancaman Baru Kebebasan Pers di Era Digital?
-            </h1>
+            ))}
+          </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-y border-blue-gray/30 mb-8">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-gray/30 overflow-hidden">
-                  <img src="https://i.pravatar.cc/150?u=author" alt="Author" />
-                </div>
-                <div>
-                  <p className="font-bold text-sm text-dark">Ahmad Reza</p>
-                  <p className="text-xs text-text-medium">Jurnalis Kebijakan Publik</p>
-                </div>
+          <div className="flex flex-col items-center justify-center gap-4 mb-10">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-[#003087] flex items-center justify-center font-bold text-white text-xl shadow-lg">
+                {article.author ? article.author[0] : 'R'}
               </div>
-              
-              <div className="flex items-center gap-4 text-sm text-text-medium">
-                <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> 24 Mar 2026</span>
-                <span>&bull;</span>
-                <span>5 mnt baca</span>
-                <div className="flex gap-2 ml-2">
-                  <button className="p-2 rounded-full hover:bg-blue-gray/20 transition-colors text-text-dark">
-                    <Bookmark className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 rounded-full hover:bg-blue-gray/20 transition-colors text-text-dark">
-                    <Share2 className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 rounded-full hover:bg-blue-gray/20 transition-colors text-text-dark hidden sm:block">
-                    <Printer className="w-4 h-4" />
-                  </button>
-                </div>
+              <div className="text-left">
+                <p className="font-black text-base text-[#0D1B3E] leading-tight">{article.author || 'Redaksi Juncto'}</p>
+                <p className="text-[11px] font-bold text-[#E31B23] uppercase tracking-widest mt-0.5">Jurnalis Investigasi</p>
               </div>
+            </div>
+
+            <div className="h-px w-24 bg-[#E8EFF9]"></div>
+
+            <div className="flex items-center gap-6 text-[12px] font-bold text-[#8899AA] uppercase tracking-widest">
+              <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-[#003087]" /> {new Date(article.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+              <span className="flex items-center gap-1.5"><FileText className="w-4 h-4 text-[#003087]" /> {article.views || 0} Pembaca</span>
             </div>
           </div>
 
-          <div className="relative aspect-video rounded-xl overflow-hidden mb-8 shrink-0">
-            <ArticleImage src="https://picsum.photos/seed/article1/1200/600" alt="Article" variant="featured" category="kebijakan" className="w-full h-full" />
-            <div className="absolute bottom-0 left-0 w-full bg-dark/70 text-white/80 text-xs p-2 backdrop-blur-sm">
-              Ilustrasi: Gedung DPR RI (Foto: Juncto.Media/Dok)
-            </div>
-          </div>
-
-          <div className="prose prose-lg max-w-none prose-headings:font-heading prose-headings:font-bold prose-headings:text-dark prose-p:text-text-dark prose-p:leading-relaxed prose-a:text-primary hover:prose-a:text-secondary">
-            <p className="lead text-xl font-medium text-text-medium mb-8">
-              Revisi Undang-Undang Penyiaran yang tengah dibahas di DPR memicu kontroversi. Sejumlah pasal dinilai berpotensi membungkam kebebasan pers dan kebebasan berekspresi di ruang digital.
-            </p>
-
-            <p>
-              Jakarta, Juncto.Media — Pembahasan draf revisi Undang-Undang Nomor 32 Tahun 2002 tentang Penyiaran (RUU Penyiaran) terus menuai penolakan dari berbagai kalangan, mulai dari organisasi profesi jurnalis, pegiat hak asasi manusia, hingga pembuat konten digital.
-            </p>
-
-            <blockquote className="border-l-4 border-primary bg-light-blue/30 p-4 rounded-r-lg my-8 italic text-dark font-medium">
-              "Ini bukan sekadar regulasi penyiaran konvensional, tapi upaya sistematis untuk mengontrol narasi di ruang digital yang selama ini menjadi alternatif publik."
-            </blockquote>
-
-            <h3 className="text-2xl mt-8 mb-4">Pasal-Pasal Bermasalah</h3>
-            <p>
-              Berdasarkan draf yang diperoleh Juncto.Media, terdapat beberapa pasal krusial yang menjadi sorotan:
-            </p>
-            
-            <div className="bg-off-white border border-blue-gray/30 p-6 rounded-xl my-6">
-              <h4 className="font-bold text-primary mb-2 flex items-center gap-2">
-                <FileText className="w-5 h-5" /> Sorotan Data
-              </h4>
-              <ul className="space-y-2 text-sm">
-                <li><strong>Pasal 50B ayat (2) huruf c:</strong> Larangan penayangan eksklusif jurnalistik investigasi.</li>
-                <li><strong>Pasal 50B ayat (2) huruf k:</strong> Larangan penayangan konten yang mengandung berita bohong, fitnah, penghinaan, pencemaran nama baik. (Dinilai karet dan tumpang tindih dengan UU ITE).</li>
-                <li><strong>Pasal 8A ayat (1) huruf q:</strong> Kewenangan KPI untuk menyelesaikan sengketa jurnalistik khusus di bidang penyiaran. (Mengambil alih peran Dewan Pers).</li>
-              </ul>
-            </div>
-
-            {isInvestigasi && !isPremium ? (
-              <div className="relative mt-8">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/80 to-white z-10"></div>
-                <p className="blur-[2px] select-none">
-                  Lebih jauh lagi, penelusuran kami menemukan adanya lobi-lobi politik dari kelompok tertentu yang berkepentingan untuk meloloskan pasal larangan investigasi ini. Dokumen risalah rapat internal yang bocor menunjukkan...
-                </p>
-                
-                <div className="absolute bottom-0 left-0 w-full z-20 flex flex-col items-center justify-center p-8 bg-white border border-blue-gray/20 rounded-xl shadow-xl transform translate-y-1/4">
-                  <div className="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center mb-4">
-                    <Lock className="w-6 h-6 text-accent" />
-                  </div>
-                  <h3 className="text-xl font-heading font-bold text-dark mb-2 text-center">Lanjutkan membaca investigasi ini</h3>
-                  <p className="text-text-medium text-center mb-6 text-sm max-w-md">
-                    Bagian ini berisi temuan eksklusif, dokumen rahasia, dan analisis mendalam yang hanya tersedia untuk member Juncto Premium.
-                  </p>
-                  <Link to="/workspace/settings" className="w-full sm:w-auto px-8 py-3 rounded bg-accent hover:bg-accent/90 transition-colors font-bold text-white text-center shadow-lg shadow-accent/20">
-                    Upgrade Premium — Rp150.000/bln
-                  </Link>
-                  <button className="mt-4 text-sm text-text-light hover:text-dark transition-colors underline">
-                    Sudah berlangganan? Masuk
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p>
-                  Lebih jauh lagi, penelusuran kami menemukan adanya lobi-lobi politik dari kelompok tertentu yang berkepentingan untuk meloloskan pasal larangan investigasi ini. Dokumen risalah rapat internal yang bocor menunjukkan...
-                </p>
-                {/* Full content here */}
-              </>
-            )}
-          </div>
-
-          {/* AI Integration Button */}
-          <div className="mt-24 sm:mt-16 sticky bottom-6 z-30">
-            <Link to="/workspace/ai-legal" className="flex items-center justify-between bg-primary text-white p-4 rounded-xl shadow-2xl hover:bg-secondary transition-colors border border-white/10 group">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                  <Bot className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="font-bold text-sm sm:text-base">Tanya AI tentang berita ini</p>
-                  <p className="text-xs text-blue-gray hidden sm:block">Dapatkan penjelasan hukum terkait artikel ini</p>
-                </div>
-              </div>
-              <span className="font-bold group-hover:translate-x-1 transition-transform">&rarr;</span>
-            </Link>
+          <div className="flex items-center justify-center gap-3 border-y border-[#E8EFF9] py-4">
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#F4F6FA] hover:bg-[#003087] hover:text-white transition-all text-[#0D1B3E] font-bold text-xs uppercase tracking-wider shadow-sm group"
+            >
+              <Share2 className="w-4 h-4 group-hover:scale-110 transition-transform" /> Bagikan
+            </button>
+            <button
+              onClick={toggleBookmark}
+              disabled={bookmarkLoading}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all font-bold text-xs uppercase tracking-wider shadow-sm group ${isBookmarked
+                ? 'bg-[#003087] text-white'
+                : 'bg-[#F4F6FA] text-[#0D1B3E] hover:bg-[#003087] hover:text-white'
+                }`}
+            >
+              <Bookmark className={`w-4 h-4 group-hover:scale-110 transition-transform ${isBookmarked ? 'fill-current' : ''}`} />
+              {isBookmarked ? 'Tersimpan' : 'Simpan'}
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#F4F6FA] hover:bg-[#001A5E] hover:text-white transition-all text-[#0D1B3E] font-bold text-xs uppercase tracking-wider shadow-sm group"
+            >
+              <Printer className="w-4 h-4 group-hover:scale-110 transition-transform" /> Cetak
+            </button>
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="w-full lg:w-[320px] shrink-0 space-y-8 mt-16 lg:mt-0 min-w-0">
-          {/* AI Widget */}
-          <div className="bg-off-white border border-blue-gray/30 rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Bot className="w-5 h-5 text-primary" />
-              <h3 className="font-heading font-bold text-dark">AI Legal Insight</h3>
+        {article.image_url && (
+          <div className="relative aspect-[21/9] rounded-2xl overflow-hidden mb-12 shadow-2xl scale-[1.02] border-4 border-white">
+            <ArticleImage src={article.image_url} alt={article.title} variant="featured" category={article.category.toLowerCase() as any} className="w-full h-full" />
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent text-white text-[10px] font-medium italic">
+              Foto: Dokumen Redaksi Juncto.Media
             </div>
-            <p className="text-sm text-text-medium mb-4">
-              Pasal 50B RUU Penyiaran berpotensi bertentangan dengan Pasal 4 UU No. 40 Tahun 1999 tentang Pers yang menjamin kemerdekaan pers dan hak mencari informasi.
-            </p>
-            <Link to="/workspace/ai-legal" className="text-sm font-bold text-primary hover:text-secondary flex items-center gap-1">
-              Analisis selengkapnya <span className="text-lg leading-none">&rsaquo;</span>
-            </Link>
+          </div>
+        )}
+
+        {/* Article Body (Narrow Reading Column) */}
+        <div className="max-w-[720px] mx-auto">
+          <div className="article-body selection:bg-[#003087]/10">
+            <ReactMarkdown>{article.content}</ReactMarkdown>
           </div>
 
-          {/* Related News */}
-          <div>
-            <h3 className="font-heading font-bold text-dark mb-4 border-b border-blue-gray/30 pb-2">Berita Terkait</h3>
-            <div className="space-y-4">
-              {[1, 2, 3].map(i => (
-                <Link key={i} to={`/workspace/article/${i + 10}`} className="flex gap-3 group min-w-0">
-                  <div className="w-24 h-16 rounded overflow-hidden shrink-0">
-                    <ArticleImage src={`https://picsum.photos/seed/related${i}/200/150`} alt="Related" variant="thumb" category="kebijakan" className="w-full h-full" />
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="font-bold text-sm text-dark group-hover:text-primary transition-colors leading-snug truncate sm:whitespace-normal sm:line-clamp-2">
-                      Dewan Pers Tolak Keras Pasal Larangan Jurnalistik Investigasi
-                    </h4>
-                    <span className="text-xs text-text-light mt-1 block truncate">Kemarin</span>
-                  </div>
-                </Link>
+          {/* Social Footer */}
+          <div className="mt-12 pt-8 border-t border-[#E8EFF9]">
+            <h4 className="text-xs font-black text-[#0D1B3E] uppercase tracking-[0.2em] mb-6 text-center">Bagikan Artikel Ini</h4>
+            <div className="flex justify-center gap-4">
+              {[
+                { name: 'WhatsApp', icon: <Share2 className="w-4 h-4" />, color: '#25D366' },
+                { name: 'Facebook', icon: <Share2 className="w-4 h-4" />, color: '#1877F2' },
+                { name: 'X', icon: <Share2 className="w-4 h-4" />, color: '#000000' }
+              ].map(platform => (
+                <button
+                  key={platform.name}
+                  onClick={handleShare}
+                  className="w-12 h-12 rounded-full border border-[#E8EFF9] flex items-center justify-center hover:scale-110 transition-all text-[#8899AA] shadow-sm hover:text-white"
+                  style={{ '--hover-bg': platform.color } as any}
+                >
+                  {platform.icon}
+                </button>
               ))}
             </div>
           </div>
 
-          {/* Newsletter */}
-          <div className="bg-dark text-white rounded-xl p-6">
-            <h3 className="font-heading font-bold text-lg mb-2">Juncto Briefing</h3>
-            <p className="text-sm text-blue-gray mb-4">Dapatkan ringkasan investigasi dan analisis hukum terbaru setiap pagi.</p>
-            <form className="space-y-2" onSubmit={(e) => e.preventDefault()}>
-              <input type="email" placeholder="Email Anda" className="w-full px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder:text-blue-gray/50 focus:border-accent outline-none text-sm" />
-              <button className="w-full py-2 rounded bg-white text-dark font-bold text-sm hover:bg-off-white transition-colors">
-                Berlangganan
-              </button>
-            </form>
+          {/* AI Integration Button */}
+          <div className="mt-12 mb-16">
+            <Link to="/workspace/ai-legal" className="flex items-center justify-between bg-gradient-to-r from-[#003087] to-[#001A5E] text-white p-6 rounded-2xl shadow-2xl hover:shadow-[#003087]/20 transition-all border border-white/10 group overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+              <div className="flex items-center gap-4 relative z-10">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
+                  <Bot className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="font-black text-lg">Tanya AI tentang berita ini</p>
+                  <p className="text-sm text-[#C5D3E8]">Dapatkan penjelasan hukum & analisis mendalam sekarang</p>
+                </div>
+              </div>
+              <span className="font-black text-2xl group-hover:translate-x-2 transition-transform pr-2 relative z-10">&rarr;</span>
+            </Link>
+          </div>
+
+          {/* Related News Grid */}
+          <div className="mb-20">
+            <div className="flex items-center justify-between mb-8 border-b border-[#E8EFF9] pb-4">
+              <h3 className="text-xl font-heading font-black text-[#0D1B3E] uppercase tracking-wider">Berita Terkait</h3>
+              <Link to="/workspace" className="text-sm font-bold text-[#E31B23] hover:underline">Lihat Semua &rarr;</Link>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {[1, 2].map(i => (
+                <Link key={i} to={`/workspace/article/${i + 1}`} className="group block min-w-0">
+                  <div className="aspect-video rounded-xl overflow-hidden mb-4 shadow-md">
+                    <ArticleImage src={`https://picsum.photos/seed/rel${i}/600/400`} alt="Related" variant="grid" category="kebijakan" className="w-full h-full group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <h4 className="font-bold text-lg text-[#0D1B3E] group-hover:text-[#003087] transition-colors line-clamp-2 leading-snug">
+                    Analisis Dampak Regulasi Baru Terhadap Kebebasan Pers di Indonesia
+                  </h4>
+                  <p className="text-xs text-[#8899AA] mt-2 font-bold uppercase tracking-widest">24 Maret 2024</p>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </div>

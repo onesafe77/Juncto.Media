@@ -1,3 +1,4 @@
+import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 
@@ -7,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-    const { user, loading } = useAuth();
+    const { user, isAdmin, loading } = useAuth();
 
     if (loading) {
         return (
@@ -24,12 +25,8 @@ export default function ProtectedRoute({ children, requireAdmin = false }: Prote
         return <Navigate to="/auth" replace />;
     }
 
-    // For admin routes, check user metadata for admin role
-    if (requireAdmin) {
-        const role = user.user_metadata?.role;
-        if (role !== 'admin') {
-            return <Navigate to="/workspace" replace />;
-        }
+    if (requireAdmin && !isAdmin) {
+        return <Navigate to="/workspace" replace />;
     }
 
     return <>{children}</>;

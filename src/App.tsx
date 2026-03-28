@@ -10,6 +10,7 @@ import WorkspaceLayout from './layouts/WorkspaceLayout';
 import WorkspaceHome from './pages/WorkspaceHome';
 import ArticleDetail from './pages/ArticleDetail';
 import Investigasi from './pages/Investigasi';
+import InvestigasiDetail from './pages/InvestigasiDetail';
 import Kebijakan from './pages/Kebijakan';
 import Anggaran from './pages/Anggaran';
 import Hukum from './pages/Hukum';
@@ -46,6 +47,7 @@ export default function App() {
           <Route index element={<WorkspaceHome />} />
           <Route path="article/:id" element={<ArticleDetail />} />
           <Route path="investigasi" element={<Investigasi />} />
+          <Route path="investigasi/:id" element={<InvestigasiDetail />} />
           <Route path="kebijakan" element={<Kebijakan />} />
           <Route path="anggaran" element={<Anggaran />} />
           <Route path="hukum" element={<Hukum />} />

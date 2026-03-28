@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS articles (
   is_premium BOOLEAN DEFAULT FALSE,
   image_url TEXT DEFAULT '',
   views INTEGER DEFAULT 0,
+  is_rag_indexed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS investigations (
   start_date TEXT DEFAULT '',
   target_date TEXT DEFAULT '',
   tags TEXT[] DEFAULT '{}',
+  is_rag_indexed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -104,12 +106,21 @@ ALTER TABLE investigations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_chat_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
--- Articles: Anyone can read published, authenticated can create
+-- Articles: Anyone can read published, authenticated can manage
 CREATE POLICY "Public can view published articles" ON articles
   FOR SELECT USING (status = 'Published');
 
-CREATE POLICY "Authenticated users can manage articles" ON articles
-  FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can insert articles" ON articles
+  FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can select all articles" ON articles
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can update articles" ON articles
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can delete articles" ON articles
+  FOR DELETE TO authenticated USING (true);
 
 -- Reports: Anyone can insert, authenticated can read
 CREATE POLICY "Anyone can submit reports" ON reports
@@ -166,8 +177,76 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 -- ============================================
 -- SEED DATA (Optional sample articles)
 -- ============================================
-INSERT INTO articles (title, content, snippet, category, author, status, is_premium, views, image_url) VALUES
-('KPK OTT Kadis PU Bogor: Kronologi dan Dampak Hukum', 'Investigasi mendalam tentang operasi tangkap tangan KPK terhadap Kepala Dinas PU Kota Bogor...', 'KPK berhasil melakukan OTT terhadap Kadis PU Bogor terkait dugaan suap proyek infrastruktur.', 'Hukum', 'Tim Investigasi', 'Published', false, 4821, 'https://picsum.photos/seed/kpk/800/450'),
-('Omnibus Law 3 Tahun Pasca Pengesahan: Evaluasi Dampak', 'Tiga tahun berlalu sejak pengesahan UU Cipta Kerja...', 'Evaluasi komprehensif dampak Omnibus Law terhadap dunia ketenagakerjaan dan investasi.', 'Kebijakan', 'Rina Suryani', 'Published', false, 8932, 'https://picsum.photos/seed/omnibus/800/450'),
-('Gurita Bisnis Pejabat Daerah: Investigasi Premium', 'Investigasi eksklusif mengungkap jaringan bisnis tersembunyi...', 'Membongkar jaringan bisnis tersembunyi pejabat daerah yang memanfaatkan jabatan untuk kepentingan pribadi.', 'Investigasi', 'Tim Investigasi', 'Published', true, 12093, 'https://picsum.photos/seed/gurita/800/450'),
-('Dana IKN: Audit BPK Temukan Selisih Rp2,4 Triliun', 'Badan Pemeriksa Keuangan menemukan selisih signifikan...', 'BPK menemukan selisih anggaran sebesar Rp2,4 triliun dalam proyek IKN Nusantara.', 'Anggaran', 'Ahmad Dermawan', 'Published', false, 6745, 'https://picsum.photos/seed/ikn/800/450');
+-- ============================================
+-- Seed data as before...
+-- ============================================
+
+-- ============================================
+-- 7. RAG SYSTEM TABLES
+-- ============================================
+
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Documents Table
+CREATE TABLE IF NOT EXISTS rag_documents (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT DEFAULT 'PDF',
+  size TEXT DEFAULT '0 B',
+  status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending', 'Processing', 'Indexed', 'Error')),
+  chunks_count INTEGER DEFAULT 0,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- PDF/Text Chunks Table
+CREATE TABLE IF NOT EXISTS rag_chunks (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  document_id UUID REFERENCES rag_documents(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  embedding vector(1536), -- Dimension for OpenAI text-embedding-3-small
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE rag_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rag_chunks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated can manage rag_documents" ON rag_documents
+  FOR ALL USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated can manage rag_chunks" ON rag_chunks
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- RPC for Vector Search
+CREATE OR REPLACE FUNCTION match_chunks (
+  query_embedding vector(1536),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id UUID,
+  document_id UUID,
+  content TEXT,
+  similarity float,
+  name TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rc.id,
+    rc.document_id,
+    rc.content,
+    1 - (rc.embedding <=> query_embedding) AS similarity,
+    rd.name
+  FROM rag_chunks rc
+  JOIN rag_documents rd ON rc.document_id = rd.id
+  WHERE 1 - (rc.embedding <=> query_embedding) > match_threshold
+  ORDER BY rc.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;

@@ -1,3 +1,5 @@
+import { searchContext } from './rag';
+
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -8,6 +10,7 @@ Peranmu:
 - Memberikan panduan prosedural (bukan nasihat hukum resmi).
 - Menjawab dalam Bahasa Indonesia yang jelas dan mudah dipahami.
 - Selalu menyertakan disclaimer bahwa ini bukan nasihat hukum resmi.
+- PENTING: Gunakan dokumen hukum yang disediakan di bawah ini (Hasil Retrieval) untuk menjawab pertanyaan jika relevan. Jika dokumen tidak relevan, gunakan pengetahuan umum hukum Indonesia Anda.
 Jangan pernah memberikan jawaban di luar konteks hukum Indonesia.`;
 
 export interface AIMessage {
@@ -21,6 +24,20 @@ export async function askAI(messages: AIMessage[]): Promise<string> {
     }
 
     try {
+        // 1. Get the last user message to perform RAG
+        const userMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+        let contextStr = '';
+
+        if (userMessage) {
+            // 2. Search for relevant legal context
+            const context = await searchContext(userMessage);
+            if (context.length > 0) {
+                contextStr = "\n\n=== HASIL RETRIEVAL DOKUMEN HUKUM ===\n" +
+                    context.map((c: any) => `Dari: ${c.name}\nIsi: ${c.content}`).join('\n---\n') +
+                    "\n====================================\n";
+            }
+        }
+
         const response = await fetch(OPENROUTER_URL, {
             method: 'POST',
             headers: {
@@ -30,9 +47,9 @@ export async function askAI(messages: AIMessage[]): Promise<string> {
                 'X-Title': 'Juncto.Media AI Legal Assistant',
             },
             body: JSON.stringify({
-                model: 'google/gemini-2.0-flash-001',
+                model: 'openai/gpt-4o-mini', // Switched to GPT-4o-mini as requested
                 messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
+                    { role: 'system', content: SYSTEM_PROMPT + contextStr },
                     ...messages,
                 ],
             }),

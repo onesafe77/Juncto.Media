@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { 
-  BarChart3, FileText, Search, BookOpen, Bot, FileCheck, 
-  Users, CreditCard, Megaphone, IdCard, Settings, LogOut, 
+import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import {
+  BarChart3, FileText, Search, BookOpen, Bot, FileCheck,
+  Users, CreditCard, Megaphone, IdCard, Settings, LogOut,
   Bell, ChevronLeft, ChevronRight, Edit, Eye, Trash2, Check, X,
   ArrowUpRight, ArrowDownRight, Pin, Upload, Ban, Menu,
   Plus, Filter, Calendar, User, Tag, Clock, Paperclip, MessageSquare,
@@ -13,39 +14,18 @@ import {
   Mail, Shield, HardDrive, Terminal, Key, Smartphone, Languages, Lock, ShieldCheck, ShieldAlert,
   FileJson, HardDriveDownload
 } from 'lucide-react';
-import { 
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
+import {
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area
 } from 'recharts';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
+import { processDocument, searchContext, syncAllCMSData, scrapeAndIndexURL, getDocumentChunks, deleteDocument, crawlPeraturanUU } from '../lib/rag';
+import FullScreenLoader from '../components/FullScreenLoader';
 
-// --- DATA DUMMY ---
-const articles = [
-  { id:1, title:"KPK OTT Kadis PU Bogor", rubrik:"Hukum", penulis:"Devi R.", status:"Published", views:4821, date:"25 Mar 2025", premium:false },
-  { id:2, title:"Omnibus Law 3 Tahun Pasca Pengesahan", rubrik:"Kebijakan", penulis:"Rina S.", status:"Draft", views:0, date:"25 Mar 2025", premium:false },
-  { id:3, title:"Gurita Bisnis Pejabat Daerah", rubrik:"Investigasi", penulis:"Tim Investigasi", status:"Published", views:12093, date:"23 Mar 2025", premium:true },
-  { id:4, title:"Dana IKN: Audit BPK Temukan Selisih", rubrik:"Anggaran", penulis:"Ahmad D.", status:"Review", views:0, date:"25 Mar 2025", premium:false },
-];
-
-const usersData = [
-  { id:1, name:"Budi Santoso", email:"budi@email.com", role:"Free", status:"Aktif", joined:"01 Jan 2025" },
-  { id:2, name:"Maya Putri", email:"maya@email.com", role:"Premium", status:"Aktif", joined:"15 Feb 2025" },
-  { id:3, name:"Ahmad Dhani", email:"ahmad@email.com", role:"Jurnalis", status:"Aktif", joined:"01 Mar 2025" },
-  { id:4, name:"Santi Wulan", email:"santi@email.com", role:"Editor", status:"Aktif", joined:"10 Jan 2025" },
-];
-
-const reports = [
-  { id:"JM-2025-04783", title:"Dugaan Mark-up Proyek Jalan Desa X", kategori:"Anggaran", pelapor:"Anonim", status:"Baru", date:"25 Mar 2025" },
-  { id:"JM-2025-04782", title:"Sidang Tipikor: Hakim Tidak Independen", kategori:"Hukum", pelapor:"Anonim", status:"Ditinjau", date:"24 Mar 2025" },
-  { id:"JM-2025-04780", title:"Dana BOS SDN Cipanas Diduga Diselewengkan", kategori:"Anggaran", pelapor:"Anonim", status:"Ditindaklanjuti", date:"22 Mar 2025" },
-];
-
-const journalists = [
-  { id:"JM-2025-00142", name:"Budi Santoso", jabatan:"Reporter Investigasi", desk:"Hukum", status:"Aktif", validUntil:"31 Des 2025" },
-  { id:"JM-2025-00143", name:"Devi Rahayu", jabatan:"Reporter", desk:"Anggaran", status:"Aktif", validUntil:"31 Des 2025" },
-  { id:"JM-2025-00144", name:"Reza Firmansyah", jabatan:"Fotografer", desk:"Keadilan", status:"Pending", validUntil:"-" },
-];
+// --- REUSABLE COMPONENTS ---
 
 // --- REUSABLE COMPONENTS ---
 const StatCard = ({ icon, label, value, color = '#003087', trend }: any) => (
@@ -59,7 +39,7 @@ const StatCard = ({ icon, label, value, color = '#003087', trend }: any) => (
         {value}
         {trend && (
           <span className={`text-[10px] flex items-center ${trend > 0 ? 'text-[#10B981]' : 'text-[#E31B23]'}`}>
-            {trend > 0 ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>} {Math.abs(trend)}%
+            {trend > 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />} {Math.abs(trend)}%
           </span>
         )}
       </div>
@@ -70,13 +50,13 @@ const StatCard = ({ icon, label, value, color = '#003087', trend }: any) => (
 const StatusBadge = ({ status }: { status: string }) => {
   let bg = '#F3F4F6', text = '#6B7280';
   const s = status.toLowerCase();
-  
+
   if (['published', 'aktif', 'ditindaklanjuti', 'jadi berita', 'premium'].includes(s)) { bg = '#E8F5EE'; text = '#1A8C5B'; }
   else if (['draft', 'pending', 'ditinjau', 'expired'].includes(s)) { bg = '#FFF6E0'; text = '#C47A00'; }
   else if (['review', 'diverifikasi', 'editor', 'jurnalis'].includes(s)) { bg = '#EEF0FF'; text = '#4A5FD4'; }
   else if (['baru', 'banned', 'dicabut'].includes(s)) { bg = '#FFEBEB'; text = '#C41A1A'; }
   else if (['admin'].includes(s)) { bg = '#0D1B3E'; text = '#FFFFFF'; }
-  
+
   return (
     <span className="px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: bg, color: text }}>
       {status}
@@ -105,7 +85,11 @@ const DataTable = ({ columns, data, onAction }: any) => (
                 </td>
               ))}
               <td className="p-3 text-center">
-                <button className="text-[#8899AA] hover:text-[#0D1B3E] px-2">···</button>
+                {onAction ? (
+                  onAction(row)
+                ) : (
+                  <button className="text-[#8899AA] hover:text-[#0D1B3E] px-2">···</button>
+                )}
               </td>
             </tr>
           ))}
@@ -115,10 +99,10 @@ const DataTable = ({ columns, data, onAction }: any) => (
     <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
       <div>Menampilkan 1-{data.length} dari {data.length} data</div>
       <div className="flex items-center gap-1">
-        <button className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={14}/></button>
+        <button className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={14} /></button>
         <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">1</button>
         <button className="w-6 h-6 hover:bg-gray-100 rounded">2</button>
-        <button className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={14}/></button>
+        <button className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={14} /></button>
       </div>
     </div>
   </div>
@@ -126,113 +110,291 @@ const DataTable = ({ columns, data, onAction }: any) => (
 
 // --- PAGES ---
 
-const DashboardPage = () => (
-  <div className="space-y-6">
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard icon={<FileText size={18}/>} label="Total Artikel" value="1,247" trend={12} />
-      <StatCard icon={<Search size={18}/>} label="Investigasi" value="89" color="#4A148C" />
-      <StatCard icon={<Users size={18}/>} label="Total User" value="10,482" trend={5} color="#10B981" />
-      <StatCard icon={<CreditCard size={18}/>} label="Premium" value="892" trend={8} color="#F59E0B" />
-      
-      <StatCard icon={<BarChart3 size={18}/>} label="Revenue Bulan Ini" value="Rp133,8Jt" trend={15} color="#10B981" />
-      <StatCard icon={<Megaphone size={18}/>} label="Pengaduan Baru" value={<>47 <span className="w-2 h-2 rounded-full bg-[#E31B23] inline-block ml-1"></span></>} color="#E31B23" />
-      <StatCard icon={<IdCard size={18}/>} label="Jurnalis Pending" value={<>3 <span className="w-2 h-2 rounded-full bg-[#F59E0B] inline-block ml-1"></span></>} color="#F59E0B" />
-      <StatCard icon={<Bot size={18}/>} label="RAG Chunks" value="48,392" color="#003087" />
-    </div>
+const DashboardPage = () => {
+  const [stats, setStats] = useState({
+    totalArticles: 0,
+    totalInvestigasi: 0,
+    totalUsers: 0,
+    totalReports: 0,
+    premiumUsers: 0
+  });
+  const [loading, setLoading] = useState(true);
 
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2 bg-white border border-[#E8EFF9] rounded-[10px] p-5 shadow-sm">
-        <h3 className="text-[14px] font-bold text-[#0D1B3E] mb-4">Artikel per hari (7 hari terakhir)</h3>
-        <div className="h-[200px] w-full flex items-end gap-2">
-          {[12,8,15,20,11,18,24].map((val, i) => (
-            <div key={i} className="flex-1 bg-[#003087]/10 rounded-t-sm relative group">
-              <div className="absolute bottom-0 w-full bg-[#003087] rounded-t-sm transition-all" style={{ height: `${(val/24)*100}%` }}></div>
-              <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-[#0D1B3E] text-white text-[10px] py-1 px-2 rounded">{val}</div>
-            </div>
-          ))}
-        </div>
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const [
+          { count: artCount },
+          { count: invCount },
+          { count: usrCount },
+          { count: repCount }
+        ] = await Promise.all([
+          supabase.from('articles').select('*', { count: 'exact', head: true }),
+          supabase.from('investigations').select('*', { count: 'exact', head: true }),
+          supabase.from('profiles').select('*', { count: 'exact', head: true }),
+          supabase.from('reports').select('*', { count: 'exact', head: true }),
+        ]);
+
+        setStats({
+          totalArticles: artCount || 0,
+          totalInvestigasi: invCount || 0,
+          totalUsers: usrCount || 0,
+          totalReports: repCount || 0,
+          premiumUsers: 0
+        });
+      } catch (err) {
+        console.error('Error fetching dashboard stats:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchStats();
+  }, []);
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={<FileText size={18} />} label="Total Artikel" value={stats.totalArticles.toLocaleString()} trend={12} />
+        <StatCard icon={<Search size={18} />} label="Investigasi" value={stats.totalInvestigasi.toString()} color="#4A148C" />
+        <StatCard icon={<Users size={18} />} label="Total User" value={stats.totalUsers.toLocaleString()} trend={5} color="#10B981" />
+        <StatCard icon={<CreditCard size={18} />} label="Premium" value={stats.premiumUsers.toString()} trend={8} color="#F59E0B" />
+
+        <StatCard icon={<BarChart3 size={18} />} label="Revenue" value="Rp0" color="#10B981" />
+        <StatCard icon={<Megaphone size={18} />} label="Pengaduan" value={<>{stats.totalReports} <span className="w-2 h-2 rounded-full bg-[#E31B23] inline-block ml-1"></span></>} color="#E31B23" />
+        <StatCard icon={<IdCard size={18} />} label="Jurnalis" value="0" color="#F59E0B" />
+        <StatCard icon={<Bot size={18} />} label="RAG Chunks" value="0" color="#003087" />
       </div>
-      <div className="bg-white border border-[#E8EFF9] rounded-[10px] p-5 shadow-sm">
-        <h3 className="text-[14px] font-bold text-[#0D1B3E] mb-4">Distribusi Rubrik</h3>
-        <div className="flex items-center justify-center h-[150px]">
-          <div className="w-[120px] h-[120px] rounded-full border-[16px] border-[#003087] relative" style={{ borderRightColor: '#10B981', borderBottomColor: '#E31B23', borderLeftColor: '#4A148C' }}>
-            <div className="absolute inset-0 flex items-center justify-center flex-col">
-              <span className="text-[20px] font-black text-[#0D1B3E]">1.2K</span>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white border border-[#E8EFF9] rounded-[10px] p-5 shadow-sm min-h-[300px] flex flex-col justify-center items-center">
+          <Activity className="w-12 h-12 text-[#E8EFF9] mb-4" />
+          <h3 className="text-[14px] font-bold text-[#0D1B3E] mb-1">Aktivitas Terbaru</h3>
+          <p className="text-[12px] text-[#8899AA] text-center max-w-xs italic">Hubungkan analytics untuk melihat grafik aktivitas secara real-time.</p>
+        </div>
+        <div className="bg-white border border-[#E8EFF9] rounded-[10px] p-5 shadow-sm space-y-6">
+          <h3 className="text-[14px] font-bold text-[#0D1B3E]">Ringkasan Sistem</h3>
+          <div className="space-y-4">
+            <div className="p-3 bg-[#F4F6FA] rounded-lg">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px] font-bold text-[#8899AA] uppercase tracking-wider">Database Status</span>
+                <span className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Connected</span>
+              </div>
+              <div className="text-[12px] text-[#0D1B3E] font-medium flex items-center gap-2">
+                <CheckCircle2 size={14} className="text-green-500" /> Supabase PostgreSQL
+              </div>
+            </div>
+
+            <div className="p-3 bg-[#F4F6FA] rounded-lg">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px] font-bold text-[#8899AA] uppercase tracking-wider">AI Engine</span>
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Online</span>
+              </div>
+              <div className="text-[12px] text-[#0D1B3E] font-medium flex items-center gap-2">
+                <Cpu size={14} className="text-blue-500" /> OpenRouter (Gemini 2.0)
+              </div>
+            </div>
+
+            <div className="p-3 bg-[#F4F6FA] rounded-lg">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[10px] font-bold text-[#8899AA] uppercase tracking-wider">Auth Service</span>
+                <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Active</span>
+              </div>
+              <div className="text-[12px] text-[#0D1B3E] font-medium flex items-center gap-2">
+                <ShieldCheck size={14} className="text-purple-500" /> Supabase GoTrue
+              </div>
             </div>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] font-medium text-[#8899AA]">
-          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#003087]"></div> Kebijakan (30%)</div>
-          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#10B981]"></div> Anggaran (25%)</div>
-          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#E31B23]"></div> Hukum (28%)</div>
-          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-[#4A148C]"></div> Keadilan (17%)</div>
-        </div>
       </div>
     </div>
+  );
+};
 
-    <div className="bg-[#FFF5F5] border border-[#FFCDD2] rounded-[10px] p-4 flex flex-col gap-2">
-      <div className="flex items-center justify-between text-[12px] font-medium text-[#C41A1A]">
-        <div className="flex items-center gap-2"><span className="text-lg">⚠</span> 47 pengaduan belum ditindaklanjuti</div>
-        <button className="px-3 py-1 bg-white rounded border border-[#FFCDD2] hover:bg-red-50">Lihat</button>
-      </div>
-      <div className="flex items-center justify-between text-[12px] font-medium text-[#C47A00] bg-[#FFF6E0] border border-[#FDE68A] p-2 rounded">
-        <div className="flex items-center gap-2"><span className="text-lg">⚠</span> 3 permohonan jurnalis menunggu verifikasi</div>
-        <button className="px-3 py-1 bg-white rounded border border-[#FDE68A] hover:bg-amber-50">Proses</button>
-      </div>
-    </div>
-  </div>
-);
 
 const CMSBeritaPage = () => {
+  const { user } = useAuth();
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
-  const [articleList, setArticleList] = useState(articles);
-  const [newArticle, setNewArticle] = useState({
+  const [articleList, setArticleList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newArticle, setNewArticle] = useState<any>({
     title: '',
-    rubrik: 'Hukum',
-    penulis: 'Admin Utama',
+    category: 'Hukum',
     status: 'Draft',
-    premium: false,
-    content: ''
+    is_premium: false,
+    content: '',
+    tags: []
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [editingArticle, setEditingArticle] = useState<any>(null);
 
-  const handleSave = () => {
-    const article = {
-      id: articleList.length + 1,
-      ...newArticle,
-      views: 0,
-      date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-    };
-    setArticleList([article, ...articleList]);
-    setIsWriteModalOpen(false);
-    setNewArticle({
-      title: '',
-      rubrik: 'Hukum',
-      penulis: 'Admin Utama',
-      status: 'Draft',
-      premium: false,
-      content: ''
-    });
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  async function fetchArticles() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('articles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setArticleList(data);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchArticles();
+  }, []);
+
+  const openWriteModal = (article: any = null) => {
+    if (article) {
+      setEditingArticle(article);
+      setNewArticle({
+        title: article.title,
+        category: article.category,
+        status: article.status,
+        is_premium: article.is_premium,
+        content: article.content,
+        tags: article.tags || []
+      });
+      setImagePreview(article.image_url);
+    } else {
+      setEditingArticle(null);
+      setNewArticle({
+        title: '',
+        category: 'Hukum',
+        status: 'Draft',
+        is_premium: false,
+        content: '',
+        tags: []
+      });
+      setImagePreview(null);
+      setImageFile(null);
+    }
+    setIsPreviewMode(false);
+    setIsWriteModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    let imageUrl = null;
+
+    try {
+      if (imageFile) {
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('article-images')
+          .upload(filePath, imageFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('article-images')
+          .getPublicUrl(filePath);
+
+        imageUrl = publicUrl;
+      }
+
+      if (editingArticle) {
+        const { error } = await supabase
+          .from('articles')
+          .update({
+            ...newArticle,
+            image_url: imageUrl || imagePreview,
+          })
+          .eq('id', editingArticle.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('articles')
+          .insert([{
+            ...newArticle,
+            image_url: imageUrl,
+            author: user?.user_metadata?.full_name || 'Admin',
+            author_id: user?.id,
+            views: 0
+          }]);
+
+        if (error) throw error;
+      }
+
+      setIsWriteModalOpen(false);
+      setNewArticle({
+        title: '',
+        category: 'Hukum',
+        status: 'Draft',
+        is_premium: false,
+        content: '',
+        tags: []
+      });
+      setImageFile(null);
+      setImagePreview(null);
+      fetchArticles();
+    } catch (err: any) {
+      alert('Error saving article: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string, title: string) => {
+    if (window.confirm(`Apakah Anda yakin ingin menghapus berita "${title}"? Tindakan ini tidak dapat dibatalkan.`)) {
+      try {
+        const { error } = await supabase
+          .from('articles')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Refresh the list after deletion
+        fetchArticles();
+      } catch (err: any) {
+        alert('Gagal menghapus berita: ' + err.message);
+      }
+    }
   };
 
   const columns = [
-    { key: 'title', label: 'Judul & Rubrik', render: (val: string, row: any) => (
-      <div>
-        <div className="font-bold text-[#0D1B3E]">{val} {row.premium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded ml-1">PREMIUM</span>}</div>
-        <div className="text-[10px] text-[#8899AA]">{row.rubrik}</div>
-      </div>
-    )},
-    { key: 'penulis', label: 'Penulis' },
+    {
+      key: 'title', label: 'Judul & Rubrik', render: (val: string, row: any) => (
+        <div>
+          <div className="font-bold text-[#0D1B3E]">{val} {row.is_premium && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded ml-1">PREMIUM</span>}</div>
+          <div className="text-[10px] text-[#8899AA]">{row.category}</div>
+        </div>
+      )
+    },
+    { key: 'author', label: 'Penulis' },
     { key: 'status', label: 'Status', render: (val: string) => <StatusBadge status={val} /> },
-    { key: 'views', label: 'Views', render: (val: number) => val.toLocaleString() },
-    { key: 'date', label: 'Tanggal' },
+    { key: 'views', label: 'Views', render: (val: number) => (val || 0).toLocaleString() },
+    { key: 'created_at', label: 'Tanggal', render: (val: string) => new Date(val).toLocaleDateString('id-ID') },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          <button 
-            onClick={() => setIsWriteModalOpen(true)}
+          <button
+            onClick={() => openWriteModal()}
             className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2"
           >
             <Plus size={14} /> Tulis Artikel
@@ -258,34 +420,65 @@ const CMSBeritaPage = () => {
           </select>
         </div>
       </div>
-      <DataTable columns={columns} data={articleList} />
+
+      {loading ? (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={articleList}
+          onAction={(row: any) => (
+            <div className="flex items-center justify-center gap-1">
+              <button
+                onClick={() => openWriteModal(row)}
+                className="text-[#8899AA] hover:text-[#003087] p-1.5 rounded-lg hover:bg-gray-100 transition-all text-center flex items-center justify-center"
+                title="Edit Artikel"
+              >
+                <Edit size={14} />
+              </button>
+              <button
+                onClick={() => handleDelete(row.id, row.title)}
+                className="text-[#8899AA] hover:text-[#E31B23] p-1.5 rounded-lg hover:bg-red-50 transition-all text-center flex items-center justify-center"
+                title="Hapus Berita"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )}
+        />
+      )}
 
       {/* Write Article Modal */}
       {isWriteModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><Plus size={18}/> Tulis Artikel Baru</h2>
+              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2">
+                {editingArticle ? <Edit size={18} /> : <Plus size={18} />}
+                {editingArticle ? 'Edit Artikel' : 'Tulis Artikel Baru'}
+              </h2>
               <button onClick={() => setIsWriteModalOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
               <div>
                 <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Artikel <span className="text-[#E31B23]">*</span></label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newArticle.title}
-                  onChange={e => setNewArticle({...newArticle, title: e.target.value})}
-                  placeholder="Masukkan judul artikel..." 
-                  className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" 
+                  onChange={e => setNewArticle({ ...newArticle, title: e.target.value })}
+                  placeholder="Masukkan judul artikel..."
+                  className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Rubrik <span className="text-[#E31B23]">*</span></label>
-                  <select 
-                    value={newArticle.rubrik}
-                    onChange={e => setNewArticle({...newArticle, rubrik: e.target.value})}
+                  <select
+                    value={newArticle.category}
+                    onChange={e => setNewArticle({ ...newArticle, category: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
                   >
                     <option value="Hukum">Hukum</option>
@@ -296,9 +489,9 @@ const CMSBeritaPage = () => {
                 </div>
                 <div>
                   <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Status <span className="text-[#E31B23]">*</span></label>
-                  <select 
+                  <select
                     value={newArticle.status}
-                    onChange={e => setNewArticle({...newArticle, status: e.target.value})}
+                    onChange={e => setNewArticle({ ...newArticle, status: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
                   >
                     <option value="Draft">Draft</option>
@@ -309,38 +502,169 @@ const CMSBeritaPage = () => {
               </div>
 
               <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5 flex items-center justify-between">
-                  <span>Konten Artikel <span className="text-[#E31B23]">*</span></span>
-                  <span className="text-[10px] font-medium text-[#8899AA]">Mendukung format Markdown</span>
-                </label>
-                <textarea 
-                  value={newArticle.content}
-                  onChange={e => setNewArticle({...newArticle, content: e.target.value})}
-                  rows={10} 
-                  placeholder="Tulis isi artikel di sini..." 
-                  className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none"
-                ></textarea>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[12px] font-bold text-[#0D163E] border-b border-[#E8EFF9] pb-1 grow">Isi & Media</label>
+                  <div className="flex bg-[#F4F6FA] p-0.5 rounded-lg border border-[#E8EFF9]">
+                    <button
+                      onClick={() => setIsPreviewMode(false)}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${!isPreviewMode ? 'bg-[#003087] text-white shadow-sm' : 'text-[#8899AA] hover:text-[#0D1B3E]'}`}
+                    >
+                      Editor
+                    </button>
+                    <button
+                      onClick={() => setIsPreviewMode(true)}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${isPreviewMode ? 'bg-[#003087] text-white shadow-sm' : 'text-[#8899AA] hover:text-[#0D1B3E]'}`}
+                    >
+                      Pratinjau
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="md:col-span-2 space-y-3">
+                    {!isPreviewMode ? (
+                      <>
+                        <label className="block text-[11px] font-bold text-[#8899AA] uppercase flex items-center justify-between">
+                          <span>Konten Artikel <span className="text-[#E31B23]">*</span></span>
+                          <span className="text-[10px] font-medium text-[#8899AA]">Markdown Aktif</span>
+                        </label>
+                        <textarea
+                          value={newArticle.content}
+                          onChange={e => setNewArticle({ ...newArticle, content: e.target.value })}
+                          rows={12}
+                          placeholder="Tulis isi artikel di sini..."
+                          className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none min-h-[300px]"
+                        ></textarea>
+                      </>
+                    ) : (
+                      <div className="bg-[#F4F6FA]/50 rounded-[8px] border border-[#E8EFF9] p-4 min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
+                        <div className="article-body scale-90 origin-top">
+                          <ReactMarkdown>{newArticle.content || '*Belum ada konten...*'}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#8899AA] uppercase mb-1.5">Foto Cover</label>
+                    <div className={`relative border-2 border-dashed rounded-[10px] aspect-[4/3] flex flex-col items-center justify-center transition-colors cursor-pointer group hover:bg-[#F4F6FA] ${imagePreview ? 'border-[#003087]' : 'border-[#E8EFF9]'}`}>
+                      {imagePreview ? (
+                        <>
+                          <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-[8px]" />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(null); }}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600 transition-colors"
+                          >
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud size={32} className="text-[#8899AA] group-hover:text-[#003087] mb-2" />
+                          <p className="text-[11px] font-bold text-[#0D1B3E]">Pilih Foto</p>
+                          <p className="text-[9px] text-[#8899AA]">JPG, PNG maks 2MB</p>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#8899AA] mt-2 italic">* Foto ini akan muncul sebagai cover berita di Beranda.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4 p-4 bg-[#F4F6FA] rounded-xl border border-[#E8EFF9]">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#0D1B3E] uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Tag size={14} className="text-[#003087]" /> Pilih Kriteria / Tags
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Korupsi', 'Pidana Umum', 'Perdata', 'Mahkamah Agung', 'MK', 'KPK', 'Investigasi', 'Viral', 'Eksklusif'].map(tag => {
+                      const isSelected = newArticle.tags?.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            const currentTags = newArticle.tags || [];
+                            if (isSelected) {
+                              setNewArticle({ ...newArticle, tags: currentTags.filter((t: string) => t !== tag) });
+                            } else {
+                              setNewArticle({ ...newArticle, tags: [...currentTags, tag] });
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-[8px] text-[11px] font-bold transition-all border ${isSelected
+                            ? 'bg-[#003087] text-white border-[#003087] shadow-sm'
+                            : 'bg-white text-[#8899AA] border-[#E8EFF9] hover:border-[#003087] hover:text-[#003087]'
+                            }`}
+                        >
+                          {isSelected ? '✓ ' : '+ '}{tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-[#E8EFF9]">
+                  <label className="block text-[10px] font-bold text-[#8899AA] mb-1.5 uppercase">Tambah Kriteria Kustom (Ketik & Enter)</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {newArticle.tags?.filter((t: string) => !['Korupsi', 'Pidana Umum', 'Perdata', 'Mahkamah Agung', 'MK', 'KPK', 'Investigasi', 'Viral', 'Eksklusif'].includes(t)).map((tag: string, idx: number) => (
+                      <span key={idx} className="bg-[#003087]/10 text-[#003087] text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        {tag}
+                        <button onClick={() => setNewArticle({ ...newArticle, tags: newArticle.tags.filter((t: string) => t !== tag) })} className="hover:text-red-500"><X size={10} /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Politik, Ekonomi, Sosmed..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault();
+                        const val = (e.target as HTMLInputElement).value.trim();
+                        if (val) {
+                          const currentTags = newArticle.tags || [];
+                          if (!currentTags.includes(val)) {
+                            setNewArticle({ ...newArticle, tags: [...currentTags, val] });
+                          }
+                          (e.target as HTMLInputElement).value = '';
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-[#E8EFF9] rounded-[8px] text-[12px] outline-none focus:border-[#003087]"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-100 rounded-[8px]">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="premium-check"
-                  checked={newArticle.premium}
-                  onChange={e => setNewArticle({...newArticle, premium: e.target.checked})}
-                  className="rounded border-amber-300 text-amber-600 focus:ring-amber-500" 
+                  checked={newArticle.is_premium}
+                  onChange={e => setNewArticle({ ...newArticle, is_premium: e.target.checked })}
+                  className="rounded border-amber-300 text-amber-600 focus:ring-amber-500"
                 />
                 <label htmlFor="premium-check" className="text-[12px] font-medium text-amber-800 cursor-pointer">Tandai sebagai Artikel Premium (Hanya untuk pelanggan Pro/Enterprise)</label>
               </div>
             </div>
             <div className="p-4 border-t border-[#E8EFF9] flex justify-end gap-3 bg-[#F4F6FA] shrink-0">
-              <button onClick={() => setIsWriteModalOpen(false)} className="px-4 py-2 rounded-[8px] text-[12px] font-bold text-[#8899AA] hover:bg-gray-200 transition-colors">Batal</button>
-              <button 
-                onClick={handleSave}
-                disabled={!newArticle.title || !newArticle.content}
-                className="bg-[#003087] text-white px-6 py-2 rounded-[8px] text-[12px] font-bold hover:bg-[#002566] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              <button
+                onClick={() => setIsWriteModalOpen(false)}
+                disabled={saving}
+                className="px-4 py-2 rounded-[8px] text-[12px] font-bold text-[#8899AA] hover:bg-gray-200 transition-colors disabled:opacity-50"
               >
-                Simpan Artikel
+                Batal
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!newArticle.title || !newArticle.content || saving}
+                className="bg-[#003087] text-white px-6 py-2 rounded-[8px] text-[12px] font-bold hover:bg-[#002566] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {saving && <Loader2 size={12} className="animate-spin" />}
+                {saving ? 'Menyimpan...' : (editingArticle ? 'Simpan Perubahan' : 'Simpan Artikel')}
               </button>
             </div>
           </div>
@@ -350,205 +674,375 @@ const CMSBeritaPage = () => {
   );
 };
 
-const ManajemenUserPage = () => {
-  const columns = [
-    { key: 'name', label: 'User', render: (val: string, row: any) => (
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">{val.charAt(0)}</div>
-        <div>
-          <div className="font-bold text-[#0D1B3E]">{val}</div>
-          <div className="text-[10px] text-[#8899AA]">{row.email}</div>
+
+const ManajemenNotifikasiPage = () => {
+  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
+  const [type, setType] = useState('info');
+  const [sending, setSending] = useState(false);
+  const [recentNotifs, setRecentNotifs] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchRecent();
+  }, []);
+
+  async function fetchRecent() {
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (data) setRecentNotifs(data);
+  }
+
+  const handleSend = async () => {
+    if (!title || !message) return;
+    setSending(true);
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .insert([{
+          title,
+          message,
+          type,
+          link: '/workspace'
+        }]);
+
+      if (error) throw error;
+
+      setTitle('');
+      setMessage('');
+      alert('Notifikasi berhasil dikirim!');
+      fetchRecent();
+    } catch (err: any) {
+      alert('Gagal mengirim: ' + err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <div className="bg-white border border-[#E8EFF9] rounded-xl p-6 shadow-sm">
+        <h3 className="font-bold text-[16px] text-[#0D1B3E] mb-4 flex items-center gap-2">
+          <Megaphone className="text-[#003087]" size={18} /> Kirim Informasi Terbaru (Broadcast)
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Notifikasi</label>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Contoh: Pembaruan Sistem Malam Ini"
+              className="w-full px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Pesan / Informasi</label>
+            <textarea
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              rows={4}
+              placeholder="Masukkan detail informasi yang ingin disampaikan..."
+              className="w-full px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none"
+            ></textarea>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="type" checked={type === 'info'} onChange={() => setType('info')} className="text-[#003087]" />
+                <span className="text-[12px]">Info</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="type" checked={type === 'warning'} onChange={() => setType('warning')} className="text-[#E31B23]" />
+                <span className="text-[12px]">Pemuatan/Alert</span>
+              </label>
+            </div>
+            <button
+              onClick={handleSend}
+              disabled={!title || !message || sending}
+              className="bg-[#003087] text-white px-6 py-2 rounded-[8px] text-[12px] font-bold hover:bg-[#002566] transition-colors disabled:opacity-50"
+            >
+              {sending ? 'Mengirim...' : 'Kirim Sekarang'}
+            </button>
+          </div>
         </div>
       </div>
-    )},
+
+      <div className="bg-white border border-[#E8EFF9] rounded-xl overflow-hidden shadow-sm">
+        <div className="p-4 bg-[#F4F6FA] border-b border-[#E8EFF9]">
+          <h4 className="font-bold text-[13px] text-[#0D1B3E]">Riwayat Notifikasi Terakhir</h4>
+        </div>
+        <div className="divide-y divide-[#E8EFF9]">
+          {recentNotifs.length === 0 ? (
+            <div className="p-8 text-center text-[#8899AA] text-[12px]">Belum ada riwayat notifikasi.</div>
+          ) : (
+            recentNotifs.map(n => (
+              <div key={n.id} className="p-4 flex justify-between items-start gap-4">
+                <div>
+                  <div className="font-bold text-[13px] text-[#0D1B3E]">{n.title}</div>
+                  <div className="text-[11px] text-[#8899AA] mt-1">{n.message}</div>
+                  <div className="text-[9px] text-[#8899AA] mt-2">{new Date(n.created_at).toLocaleString('id-ID')}</div>
+                </div>
+                <StatusBadge status={n.type === 'info' ? 'Info' : 'Warning'} />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+const ManajemenUserPage = () => {
+  const [userList, setUserList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchUsers() {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) setUserList(data);
+      setLoading(false);
+    }
+    fetchUsers();
+  }, []);
+
+  const columns = [
+    {
+      key: 'full_name', label: 'User', render: (val: string, row: any) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">{(val || 'U').charAt(0)}</div>
+          <div>
+            <div className="font-bold text-[#0D1B3E]">{val || 'Unnamed User'}</div>
+            <div className="text-[10px] text-[#8899AA]">{row.id}</div>
+          </div>
+        </div>
+      )
+    },
     { key: 'role', label: 'Role', render: (val: string) => <StatusBadge status={val} /> },
-    { key: 'status', label: 'Status', render: (val: string) => <StatusBadge status={val} /> },
-    { key: 'joined', label: 'Bergabung' },
+    { key: 'created_at', label: 'Bergabung', render: (val: string) => new Date(val).toLocaleDateString('id-ID') },
   ];
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-          <input type="text" placeholder="Cari nama/email..." className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]" />
+          <input type="text" placeholder="Cari nama..." className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]" />
         </div>
-        <button className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold">+ Tambah User</button>
       </div>
-      <DataTable columns={columns} data={usersData} />
+      <DataTable columns={columns} data={userList} />
     </div>
   );
 };
 
+
 const PengaduanPage = () => {
+  const [reportList, setReportList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchReports() {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) setReportList(data);
+      setLoading(false);
+    }
+    fetchReports();
+  }, []);
+
   const columns = [
     { key: 'id', label: 'ID', render: (val: string) => <span className="font-mono text-[11px] text-[#8899AA]">{val}</span> },
-    { key: 'title', label: 'Laporan', render: (val: string, row: any) => (
-      <div>
-        <div className="font-bold text-[#0D1B3E]">{val}</div>
-        <div className="text-[10px] text-[#8899AA]">Kategori: {row.kategori} | Pelapor: {row.pelapor}</div>
-      </div>
-    )},
+    {
+      key: 'title', label: 'Laporan', render: (val: string, row: any) => (
+        <div>
+          <div className="font-bold text-[#0D1B3E]">{val}</div>
+          <div className="text-[10px] text-[#8899AA]">Kategori: {row.category} | Pelapor: {row.reporter_name}</div>
+        </div>
+      )
+    },
     { key: 'status', label: 'Status', render: (val: string) => <StatusBadge status={val} /> },
-    { key: 'date', label: 'Tanggal' },
+    { key: 'created_at', label: 'Tanggal', render: (val: string) => new Date(val).toLocaleDateString('id-ID') },
   ];
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<Megaphone size={18}/>} label="Total Laporan" value="1,247" />
-        <StatCard icon={<Megaphone size={18}/>} label="Baru" value="47" color="#E31B23" />
-        <StatCard icon={<Check size={18}/>} label="Ditindaklanjuti" value="892" color="#10B981" />
-        <StatCard icon={<FileText size={18}/>} label="Jadi Berita" value="156" color="#003087" />
+        <StatCard icon={<Megaphone size={18} />} label="Total Laporan" value={reportList.length.toString()} />
+        <StatCard icon={<Megaphone size={18} />} label="Baru" value={reportList.filter(r => r.status === 'Baru').length.toString()} color="#E31B23" />
+        <StatCard icon={<Check size={18} />} label="Selesai" value={reportList.filter(r => r.status === 'Selesai').length.toString()} color="#10B981" />
+        <StatCard icon={<FileText size={18} />} label="Diproses" value={reportList.filter(r => r.status === 'Diproses').length.toString()} color="#003087" />
       </div>
-      <DataTable columns={columns} data={reports} />
+      <DataTable columns={columns} data={reportList} />
     </div>
   );
 };
 
+
 const VerifJurnalisPage = () => {
+  const [journalistList, setJournalistList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchJournalists() {
+      const { data, error } = await supabase
+        .from('journalists')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) setJournalistList(data);
+      setLoading(false);
+    }
+    fetchJournalists();
+  }, []);
+
   const columns = [
-    { key: 'name', label: 'Jurnalis', render: (val: string, row: any) => (
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded bg-gray-200"></div>
-        <div>
-          <div className="font-bold text-[#0D1B3E]">{val}</div>
-          <div className="font-mono text-[10px] text-[#8899AA]">{row.id}</div>
+    {
+      key: 'name', label: 'Jurnalis', render: (val: string, row: any) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded bg-gray-200"></div>
+          <div>
+            <div className="font-bold text-[#0D1B3E]">{val}</div>
+            <div className="font-mono text-[10px] text-[#8899AA]">{row.id}</div>
+          </div>
         </div>
-      </div>
-    )},
-    { key: 'jabatan', label: 'Posisi', render: (val: string, row: any) => (
-      <div>
-        <div className="text-[12px] text-[#0D1B3E]">{val}</div>
-        <div className="text-[10px] text-[#8899AA]">Desk: {row.desk}</div>
-      </div>
-    )},
+      )
+    },
+    {
+      key: 'position', label: 'Posisi', render: (val: string, row: any) => (
+        <div>
+          <div className="text-[12px] text-[#0D1B3E]">{val}</div>
+          <div className="text-[10px] text-[#8899AA]">Desk: {row.desk}</div>
+        </div>
+      )
+    },
     { key: 'status', label: 'Status', render: (val: string) => <StatusBadge status={val} /> },
-    { key: 'validUntil', label: 'Berlaku s.d.' },
+    { key: 'valid_until', label: 'Berlaku s.d.' },
   ];
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex gap-4 border-b border-[#E8EFF9] mb-4">
         <button className="px-4 py-2 border-b-2 border-[#003087] text-[#003087] font-bold text-[12px]">Semua Anggota</button>
-        <button className="px-4 py-2 border-b-2 border-transparent text-[#8899AA] font-medium text-[12px]">Pending Verifikasi (3)</button>
+        <button className="px-4 py-2 border-b-2 border-transparent text-[#8899AA] font-medium text-[12px]">Pending Verifikasi</button>
         <button className="px-4 py-2 border-b-2 border-transparent text-[#8899AA] font-medium text-[12px]">Expired</button>
       </div>
       <div className="flex justify-end mb-4">
         <button className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold">+ Tambah Anggota</button>
       </div>
-      <DataTable columns={columns} data={journalists} />
+      <DataTable columns={columns} data={journalistList} />
     </div>
   );
 };
 
-const dummyInvestigasi = [
-  {
-    id: 'INV-2025-001',
-    title: 'Dugaan Korupsi Proyek Jalan Tol Trans-Sumatera',
-    journalist: 'Budi Santoso',
-    status: 'Aktif',
-    priority: 'Tinggi',
-    startDate: '10 Jan 2025',
-    targetDate: '15 Apr 2025',
-    description: 'Investigasi mendalam terkait aliran dana fiktif pada sub-kontraktor proyek jalan tol.',
-    tags: ['Korupsi', 'Infrastruktur', 'BUMN'],
-    timeline: [
-      { date: '10 Jan 2025', event: 'Kasus dibuka dan tim dibentuk.' },
-      { date: '25 Jan 2025', event: 'Wawancara dengan narasumber anonim (whistleblower).' },
-      { date: '15 Feb 2025', event: 'Pengumpulan dokumen RAB dan laporan keuangan.' }
-    ],
-    notes: [
-      { author: 'Admin', date: '12 Jan 2025', text: 'Pastikan keamanan narasumber utama.' },
-      { author: 'Budi Santoso', date: '20 Feb 2025', text: 'Menunggu konfirmasi dari pihak kementerian.' }
-    ],
-    docs: [
-      { name: 'Laporan_Keuangan_Q3.pdf', size: '2.4 MB' },
-      { name: 'Transkrip_Wawancara_01.docx', size: '156 KB' }
-    ]
-  },
-  {
-    id: 'INV-2025-002',
-    title: 'Mafia Tanah di Kawasan Pesisir Utara',
-    journalist: 'Devi Rahayu',
-    status: 'Selesai',
-    priority: 'Sedang',
-    startDate: '05 Nov 2024',
-    targetDate: '20 Jan 2025',
-    description: 'Penelusuran sindikat pemalsuan sertifikat tanah yang merugikan nelayan lokal.',
-    tags: ['Mafia Tanah', 'Agraria'],
-    timeline: [
-      { date: '05 Nov 2024', event: 'Investigasi dimulai.' },
-      { date: '18 Jan 2025', event: 'Penyusunan laporan akhir.' },
-      { date: '20 Jan 2025', event: 'Artikel dipublikasikan (3 Part).' }
-    ],
-    notes: [],
-    docs: [{ name: 'Salinan_Sertifikat_Palsu.pdf', size: '5.1 MB' }]
-  },
-  {
-    id: 'INV-2025-003',
-    title: 'Kartel Harga Obat-obatan Esensial',
-    journalist: 'Tim Investigasi',
-    status: 'Draft',
-    priority: 'Tinggi',
-    startDate: '20 Mar 2025',
-    targetDate: '30 Jun 2025',
-    description: 'Menyelidiki lonjakan harga obat esensial di apotek jaringan.',
-    tags: ['Kesehatan', 'Kartel', 'Bisnis'],
-    timeline: [{ date: '20 Mar 2025', event: 'Pengumpulan data awal harga pasar.' }],
-    notes: [],
-    docs: []
-  },
-  {
-    id: 'INV-2025-004',
-    title: 'Eksploitasi Pekerja Tambang Ilegal',
-    journalist: 'Ahmad Dhani',
-    status: 'Aktif',
-    priority: 'Sedang',
-    startDate: '01 Feb 2025',
-    targetDate: '10 Mei 2025',
-    description: 'Kondisi kerja dan pelanggaran HAM di tambang nikel ilegal.',
-    tags: ['HAM', 'Tambang', 'Lingkungan'],
-    timeline: [{ date: '01 Feb 2025', event: 'Keberangkatan tim ke lokasi.' }],
-    notes: [],
-    docs: []
-  },
-  {
-    id: 'INV-2025-005',
-    title: 'Skandal Impor Beras',
-    journalist: 'Santi Wulan',
-    status: 'Arsip',
-    priority: 'Rendah',
-    startDate: '15 Ags 2024',
-    targetDate: '30 Okt 2024',
-    description: 'Dugaan suap kuota impor beras.',
-    tags: ['Korupsi', 'Pangan'],
-    timeline: [],
-    notes: [],
-    docs: []
-  }
-];
 
 const InvestigasiPage = () => {
+  const [investigasiList, setInvestigasiList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Semua');
   const [priorityFilter, setPriorityFilter] = useState('Semua');
-  const [journalistFilter, setJournalistFilter] = useState('Semua');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<any>(null);
+  const [newCase, setNewCase] = useState<any>({
+    title: '',
+    description: '',
+    journalist: '',
+    status: 'Draft',
+    priority: 'Sedang',
+    start_date: '',
+    target_date: '',
+    image_url: ''
+  });
+  const [caseImageFile, setCaseImageFile] = useState<File | null>(null);
+  const [caseImagePreview, setCaseImagePreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editingCase, setEditingCase] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
 
-  const filteredData = dummyInvestigasi.filter(item => {
-    const matchSearch = item.title.toLowerCase().includes(search.toLowerCase()) || item.id.toLowerCase().includes(search.toLowerCase());
+  async function fetchInvestigations() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('investigations')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) setInvestigasiList(data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchInvestigations();
+  }, []);
+
+  const filteredData = investigasiList.filter(item => {
+    const matchSearch = item.title.toLowerCase().includes(search.toLowerCase()) || (item.id && item.id.toLowerCase().includes(search.toLowerCase()));
     const matchStatus = statusFilter === 'Semua' || item.status === statusFilter;
     const matchPriority = priorityFilter === 'Semua' || item.priority === priorityFilter;
-    const matchJournalist = journalistFilter === 'Semua' || item.journalist === journalistFilter;
-    return matchSearch && matchStatus && matchPriority && matchJournalist;
+    return matchSearch && matchStatus && matchPriority;
   });
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handleEditCase = (row: any) => {
+    setEditingCase(row);
+    setNewCase({
+      title: row.title,
+      description: row.description || '',
+      journalist: row.journalist || '',
+      status: row.status,
+      priority: row.priority,
+      start_date: row.start_date || '',
+      target_date: row.target_date || '',
+      image_url: row.image_url || ''
+    });
+    setCaseImagePreview(row.image_url || null);
+    setIsCreateModalOpen(true);
+  };
+
+  const handleDeleteCase = async (id: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus kasus investigasi ini?')) return;
+    try {
+      const { error } = await supabase
+        .from('investigations')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      fetchInvestigations();
+      alert('Kasus berhasil dihapus.');
+    } catch (err: any) {
+      alert('Gagal menghapus: ' + err.message);
+    }
+  };
 
   const PriorityBadge = ({ priority }: { priority: string }) => {
     let bg = '#F3F4F6', text = '#6B7280';
@@ -558,12 +1052,114 @@ const InvestigasiPage = () => {
     return <span className="px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: bg, color: text }}>{priority}</span>;
   };
 
+  const handleSaveInvestigation = async () => {
+    if (!newCase.title) return;
+    setSaving(true);
+    try {
+      let imageUrl = '';
+
+      if (caseImageFile) {
+        const fileExt = caseImageFile.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `investigations/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('article-images')
+          .upload(filePath, caseImageFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('article-images')
+          .getPublicUrl(filePath);
+
+        imageUrl = publicUrl;
+      }
+
+      if (editingCase) {
+        const { error } = await supabase
+          .from('investigations')
+          .update({
+            title: newCase.title,
+            description: newCase.description,
+            journalist: newCase.journalist,
+            status: newCase.status,
+            priority: newCase.priority,
+            start_date: newCase.start_date,
+            target_date: newCase.target_date,
+            image_url: imageUrl || newCase.image_url,
+          })
+          .eq('id', editingCase.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('investigations')
+          .insert([{
+            id: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+            title: newCase.title,
+            description: newCase.description,
+            journalist: newCase.journalist,
+            status: newCase.status,
+            priority: newCase.priority,
+            start_date: newCase.start_date,
+            target_date: newCase.target_date,
+            image_url: imageUrl,
+            created_at: new Date().toISOString()
+          }]);
+        if (error) throw error;
+      }
+
+      setIsCreateModalOpen(false);
+      setEditingCase(null);
+      setNewCase({
+        title: '',
+        description: '',
+        journalist: '',
+        status: 'Draft',
+        priority: 'Sedang',
+        start_date: '',
+        target_date: '',
+        image_url: ''
+      });
+      setCaseImageFile(null);
+      setCaseImagePreview(null);
+      fetchInvestigations();
+      alert('Kasus investigasi berhasil dibuat!');
+    } catch (err: any) {
+      alert('Gagal menyimpan kasus: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && investigasiList.length === 0) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
+    </div>
+  );
+
   return (
     <div className="space-y-4 relative">
-      {/* Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setIsCreateModalOpen(true)} className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2">
+          <button
+            onClick={() => {
+              setEditingCase(null);
+              setNewCase({
+                title: '',
+                description: '',
+                journalist: '',
+                status: 'Draft',
+                priority: 'Sedang',
+                start_date: '',
+                target_date: '',
+                image_url: ''
+              });
+              setCaseImagePreview(null);
+              setIsCreateModalOpen(true);
+            }}
+            className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2"
+          >
             <Plus size={14} /> Buat Kasus Baru
           </button>
           <div className="relative">
@@ -577,6 +1173,8 @@ const InvestigasiPage = () => {
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-[12px] outline-none bg-transparent text-[#0D1B3E] font-medium">
               <option value="Semua">Semua Status</option>
               <option value="Draft">Draft</option>
+              <option value="Review">Review</option>
+              <option value="Published">Terbit</option>
               <option value="Aktif">Aktif</option>
               <option value="Selesai">Selesai</option>
               <option value="Arsip">Arsip</option>
@@ -588,63 +1186,55 @@ const InvestigasiPage = () => {
             <option value="Sedang">Sedang</option>
             <option value="Rendah">Rendah</option>
           </select>
-          <select value={journalistFilter} onChange={e => setJournalistFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-            <option value="Semua">Semua Jurnalis</option>
-            <option value="Budi Santoso">Budi Santoso</option>
-            <option value="Devi Rahayu">Devi Rahayu</option>
-            <option value="Ahmad Dhani">Ahmad Dhani</option>
-            <option value="Santi Wulan">Santi Wulan</option>
-            <option value="Tim Investigasi">Tim Investigasi</option>
-          </select>
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white border border-[#E8EFF9] rounded-[10px] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[12px]">
             <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
               <tr>
-                <th className="p-3">ID Kasus</th>
                 <th className="p-3">Judul Kasus</th>
-                <th className="p-3">Jurnalis</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Prioritas</th>
                 <th className="p-3">Tgl Mulai</th>
                 <th className="p-3">Tgl Target</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E8EFF9]">
               {paginatedData.length > 0 ? paginatedData.map((row, i) => (
-                <tr key={i} onClick={() => setSelectedCase(row)} className="hover:bg-[#F4F6FA]/50 transition-colors cursor-pointer">
-                  <td className="p-3 font-mono text-[11px] text-[#8899AA]">{row.id}</td>
-                  <td className="p-3 font-bold text-[#0D1B3E] max-w-[250px] truncate">{row.title}</td>
-                  <td className="p-3 text-[#0D1B3E]">{row.journalist}</td>
-                  <td className="p-3"><StatusBadge status={row.status} /></td>
-                  <td className="p-3"><PriorityBadge priority={row.priority} /></td>
-                  <td className="p-3 text-[#8899AA]">{row.startDate}</td>
-                  <td className="p-3 text-[#8899AA]">{row.targetDate}</td>
+                <tr key={i} className="hover:bg-[#F4F6FA]/50 transition-colors group">
+                  <td className="p-3 font-bold text-[#0D1B3E] max-w-[250px] truncate cursor-pointer" onClick={() => setSelectedCase(row)}>{row.title}</td>
+                  <td className="p-3 cursor-pointer" onClick={() => setSelectedCase(row)}><StatusBadge status={row.status} /></td>
+                  <td className="p-3 cursor-pointer" onClick={() => setSelectedCase(row)}><PriorityBadge priority={row.priority} /></td>
+                  <td className="p-3 text-[#8899AA] cursor-pointer" onClick={() => setSelectedCase(row)}>{row.start_date || '-'}</td>
+                  <td className="p-3 text-[#8899AA] cursor-pointer" onClick={() => setSelectedCase(row)}>{row.target_date || '-'}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleEditCase(row)} className="p-1.5 text-[#003087] hover:bg-[#003087]/10 rounded transition-colors"><Edit size={14} /></button>
+                      <button onClick={() => handleDeleteCase(row.id)} className="p-1.5 text-[#E31B23] hover:bg-[#E31B23]/10 rounded transition-colors"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-[#8899AA]">Tidak ada data yang ditemukan.</td>
+                  <td colSpan={5} className="p-6 text-center text-[#8899AA]">Tidak ada data yang ditemukan.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        {/* Pagination */}
         <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
           <div>Menampilkan {paginatedData.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, filteredData.length)} dari {filteredData.length} data</div>
           <div className="flex items-center gap-1">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronLeft size={14}/></button>
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronLeft size={14} /></button>
             <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">{currentPage}</button>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronRight size={14}/></button>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronRight size={14} /></button>
           </div>
         </div>
       </div>
 
-      {/* Slide-over Detail Panel */}
       {selectedCase && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] flex justify-end">
           <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
@@ -653,84 +1243,29 @@ const InvestigasiPage = () => {
               <button onClick={() => setSelectedCase(null)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
+              {selectedCase.image_url && (
+                <img src={selectedCase.image_url} alt={selectedCase.title} className="w-full aspect-video rounded-xl object-cover shadow-md mb-4" />
+              )}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="font-mono text-[11px] text-[#8899AA]">{selectedCase.id}</span>
                   <StatusBadge status={selectedCase.status} />
                   <PriorityBadge priority={selectedCase.priority} />
                 </div>
                 <h3 className="text-[18px] font-black text-[#0D1B3E] leading-tight mb-3">{selectedCase.title}</h3>
-                <p className="text-[13px] text-[#4A5568] leading-relaxed">{selectedCase.description}</p>
+                <p className="text-[13px] text-[#4A5568] leading-relaxed mb-4">{selectedCase.description}</p>
+                <div className="text-[12px] font-bold text-[#0D1B3E] flex items-center gap-2">
+                  <User size={14} className="text-[#003087]" /> Jurnalis: {selectedCase.journalist || 'Belum ditugaskan'}
+                </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 bg-[#F4F6FA] p-4 rounded-[8px] border border-[#E8EFF9]">
                 <div>
-                  <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Jurnalis</div>
-                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><User size={12}/> {selectedCase.journalist}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Tags</div>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedCase.tags.map((tag: string, i: number) => (
-                      <span key={i} className="text-[10px] bg-white border border-[#E8EFF9] px-1.5 py-0.5 rounded text-[#0D1B3E]">{tag}</span>
-                    ))}
-                  </div>
-                </div>
-                <div>
                   <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Mulai</div>
-                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12}/> {selectedCase.startDate}</div>
+                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12} /> {selectedCase.start_date || '-'}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Target</div>
-                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12}/> {selectedCase.targetDate}</div>
-                </div>
-              </div>
-
-              {/* Timeline */}
-              <div>
-                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Clock size={14}/> Timeline Investigasi</h4>
-                <div className="space-y-4 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-                  {selectedCase.timeline.length > 0 ? selectedCase.timeline.map((item: any, i: number) => (
-                    <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                      <div className="flex items-center justify-center w-4 h-4 rounded-full border-2 border-white bg-[#003087] text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2"></div>
-                      <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] bg-white p-3 rounded-[8px] border border-[#E8EFF9] shadow-sm">
-                        <div className="text-[10px] font-bold text-[#003087] mb-1">{item.date}</div>
-                        <div className="text-[12px] text-[#0D1B3E]">{item.event}</div>
-                      </div>
-                    </div>
-                  )) : <div className="text-[12px] text-[#8899AA] italic">Belum ada timeline.</div>}
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><MessageSquare size={14}/> Catatan Internal</h4>
-                <div className="space-y-3">
-                  {selectedCase.notes.length > 0 ? selectedCase.notes.map((note: any, i: number) => (
-                    <div key={i} className="bg-[#FFF6E0] p-3 rounded-[8px] border border-[#FDE68A]">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-[11px] font-bold text-[#C47A00]">{note.author}</span>
-                        <span className="text-[9px] text-[#C47A00]/70">{note.date}</span>
-                      </div>
-                      <p className="text-[12px] text-[#0D1B3E]">{note.text}</p>
-                    </div>
-                  )) : <div className="text-[12px] text-[#8899AA] italic">Belum ada catatan.</div>}
-                </div>
-              </div>
-
-              {/* Docs */}
-              <div>
-                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Paperclip size={14}/> Dokumen Terkait</h4>
-                <div className="space-y-2">
-                  {selectedCase.docs.length > 0 ? selectedCase.docs.map((doc: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between p-2.5 bg-white border border-[#E8EFF9] rounded-[8px] hover:border-[#003087] transition-colors cursor-pointer group">
-                      <div className="flex items-center gap-2">
-                        <FileText size={14} className="text-[#8899AA] group-hover:text-[#003087]" />
-                        <span className="text-[12px] font-medium text-[#0D1B3E]">{doc.name}</span>
-                      </div>
-                      <span className="text-[10px] text-[#8899AA]">{doc.size}</span>
-                    </div>
-                  )) : <div className="text-[12px] text-[#8899AA] italic">Belum ada dokumen.</div>}
+                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12} /> {selectedCase.target_date || '-'}</div>
                 </div>
               </div>
             </div>
@@ -738,60 +1273,161 @@ const InvestigasiPage = () => {
         </div>
       )}
 
-      {/* Create Modal */}
+      {/* CREATE MODAL */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
             <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E]">Buat Kasus Investigasi Baru</h2>
+              <h2 className="font-bold text-[16px] text-[#0D1B3E]">{editingCase ? 'Edit Kasus Investigasi' : 'Buat Kasus Investigasi Baru'}</h2>
               <button onClick={() => setIsCreateModalOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Judul Kasus <span className="text-[#E31B23]">*</span></label>
-                <input type="text" placeholder="Masukkan judul investigasi..." className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-              </div>
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Deskripsi Singkat</label>
-                <textarea rows={3} placeholder="Jelaskan fokus investigasi ini..." className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none"></textarea>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Jurnalis Ditugaskan <span className="text-[#E31B23]">*</span></label>
-                  <select className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white">
-                    <option value="">Pilih Jurnalis...</option>
-                    <option value="Budi Santoso">Budi Santoso</option>
-                    <option value="Devi Rahayu">Devi Rahayu</option>
-                    <option value="Tim Investigasi">Tim Investigasi</option>
-                  </select>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="md:col-span-2">
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Kasus <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Skandal Lahan Parkir..."
+                    value={newCase.title}
+                    onChange={e => setNewCase({ ...newCase, title: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
+                  />
                 </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Deskripsi Kasus</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Ringkasan temuan awal atau fokus investigasi..."
+                    value={newCase.description}
+                    onChange={e => setNewCase({ ...newCase, description: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none"
+                  ></textarea>
+                </div>
+
                 <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Prioritas <span className="text-[#E31B23]">*</span></label>
-                  <select className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white">
-                    <option value="Rendah">Rendah</option>
-                    <option value="Sedang">Sedang</option>
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Jurnalis / Tim</label>
+                  <input
+                    type="text"
+                    placeholder="Nama Jurnalis..."
+                    value={newCase.journalist}
+                    onChange={e => setNewCase({ ...newCase, journalist: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Prioritas</label>
+                  <select
+                    value={newCase.priority}
+                    onChange={e => setNewCase({ ...newCase, priority: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
+                  >
                     <option value="Tinggi">Tinggi</option>
+                    <option value="Sedang">Sedang</option>
+                    <option value="Rendah">Rendah</option>
                   </select>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+
                 <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Tanggal Mulai <span className="text-[#E31B23]">*</span></label>
-                  <input type="date" className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Status</label>
+                  <select
+                    value={newCase.status}
+                    onChange={e => setNewCase({ ...newCase, status: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
+                  >
+                    <option value="Draft">Draft</option>
+                    <option value="Review">Review</option>
+                    <option value="Published">Published</option>
+                    <option value="Aktif">Aktif</option>
+                    <option value="Selesai">Selesai</option>
+                  </select>
                 </div>
+
                 <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Tanggal Target Selesai</label>
-                  <input type="date" className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tanggal Mulai</label>
+                  <input
+                    type="date"
+                    value={newCase.start_date}
+                    onChange={e => setNewCase({ ...newCase, start_date: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
+                  />
                 </div>
-              </div>
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1">Tag / Kategori</label>
-                <input type="text" placeholder="Ketik tag dan tekan Enter..." className="w-full px-3 py-2 rounded-[6px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
+
+                <div>
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tanggal Target</label>
+                  <input
+                    type="date"
+                    value={newCase.target_date}
+                    onChange={e => setNewCase({ ...newCase, target_date: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
+                  />
+                </div>
+
+                <div className="md:col-span-2 pt-2">
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-2 uppercase tracking-wider">Foto Bukti / Cover Kasus</label>
+                  <div
+                    className="border-2 border-dashed border-[#E8EFF9] rounded-xl p-6 text-center hover:border-[#003087] transition-all cursor-pointer bg-gray-50 relative overflow-hidden"
+                    onClick={() => document.getElementById('case-image-upload')?.click()}
+                  >
+                    {caseImagePreview ? (
+                      <div className="relative group">
+                        <img src={caseImagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg shadow-md" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                          <span className="text-white text-xs font-bold">Ganti Foto</span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setCaseImageFile(null); setCaseImagePreview(null); }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg hover:bg-red-600 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="py-4">
+                        <UploadCloud size={40} className="mx-auto text-[#8899AA] mb-3" />
+                        <p className="text-[13px] font-bold text-[#0D1B3E]">Klik atau tarik foto ke sini</p>
+                        <p className="text-[11px] text-[#8899AA] mt-1">Upload foto pendukung untuk investigasi ini</p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      id="case-image-upload"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setCaseImageFile(file);
+                          setCaseImagePreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
+
             <div className="p-4 border-t border-[#E8EFF9] flex justify-end gap-3 bg-[#F4F6FA] shrink-0">
-              <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 border border-[#E8EFF9] bg-white text-[#0D1B3E] rounded-[6px] text-[12px] font-bold hover:bg-gray-50 transition-colors">Batal</button>
-              <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 bg-[#003087] text-white rounded-[6px] text-[12px] font-bold hover:bg-[#002266] transition-colors">Simpan Kasus</button>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                disabled={saving}
+                className="px-6 py-2.5 rounded-[8px] text-[13px] font-bold text-[#8899AA] hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSaveInvestigation}
+                disabled={!newCase.title || saving}
+                className="bg-[#003087] text-white px-8 py-2.5 rounded-[8px] text-[13px] font-bold hover:bg-[#002566] transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg"
+              >
+                {saving ? (
+                  <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
+                ) : (
+                  editingCase ? 'Simpan Perubahan' : 'Buat Kasus'
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -800,15 +1436,12 @@ const InvestigasiPage = () => {
   );
 };
 
-const dummyRAGDocs = [
-  { id: 'DOC-001', name: 'KUHP_Baru_UU_1_2023.pdf', type: 'PDF', size: '4.2 MB', status: 'Indexed', date: '20 Mar 2025', chunks: 1240 },
-  { id: 'DOC-002', name: 'Putusan_MK_No_90_PUU_XXI_2023.pdf', type: 'PDF', size: '1.8 MB', status: 'Indexed', date: '21 Mar 2025', chunks: 450 },
-  { id: 'DOC-003', name: 'UU_ITE_Revisi_Kedua.txt', type: 'TXT', size: '120 KB', status: 'Processing', date: '25 Mar 2025', progress: 45, chunks: 0 },
-  { id: 'DOC-004', name: 'https://jdih.kemenkeu.go.id/aturan/123', type: 'URL', size: '-', status: 'Pending', date: '25 Mar 2025', chunks: 0 },
-  { id: 'DOC-005', name: 'Draft_RUU_Perampasan_Aset.pdf', type: 'PDF', size: '3.5 MB', status: 'Error', date: '24 Mar 2025', chunks: 0 },
-];
+
+// RAG documents are now fetched from Supabase
 
 const KnowledgeRAGPage = () => {
+  const [docs, setDocs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('Semua');
   const [statusFilter, setStatusFilter] = useState('Semua');
@@ -816,188 +1449,444 @@ const KnowledgeRAGPage = () => {
   const [testQuery, setTestQuery] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryResults, setQueryResults] = useState<any[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState('');
+  const [isURLModalOpen, setIsURLModalOpen] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeStatus, setScrapeStatus] = useState('');
+  const [viewingChunks, setViewingChunks] = useState<any[] | null>(null);
+  const [viewingDocName, setViewingDocName] = useState('');
+  const [loadingChunks, setLoadingChunks] = useState(false);
+  const [isCrawling, setIsCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState('');
 
-  const filteredDocs = dummyRAGDocs.filter(doc => {
+  const fetchDocs = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('rag_documents')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && data) setDocs(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchDocs();
+  }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      // 1. Create document entry
+      const { data: doc, error } = await supabase.from('rag_documents').insert({
+        name: file.name,
+        type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        status: 'Pending'
+      }).select().single();
+
+      if (error) throw error;
+      fetchDocs();
+
+      // 2. Read file content (Simple implementation for .txt/.pdf as text for now)
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const content = event.target?.result as string;
+        if (content) {
+          await processDocument(doc.id, content);
+          fetchDocs();
+        }
+      };
+      reader.readAsText(file); // Note: For real PDF parsing, use a library like pdf.js
+    } catch (err: any) {
+      alert('Upload failed: ' + err.message);
+    }
+  };
+
+  const handleSyncCMS = async () => {
+    setIsSyncing(true);
+    setSyncProgress('Memulai sinkronisasi CMS...');
+    try {
+      const result = await syncAllCMSData((stage, current, total, name) => {
+        setSyncProgress(`${stage}: ${current}/${total} — ${name}`);
+      });
+      const totalIndexed = result.articles.indexed + result.investigations.indexed;
+      const totalErrors = result.articles.errors + result.investigations.errors;
+      setSyncProgress(`Selesai! ${totalIndexed} diindeks, ${totalErrors} gagal.`);
+      fetchDocs();
+    } catch (err: any) {
+      setSyncProgress(`Error: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleScrapeURL = async () => {
+    if (!urlInput.trim()) return;
+    setIsScraping(true);
+    setScrapeStatus('Memulai scraping...');
+    try {
+      const result = await scrapeAndIndexURL(urlInput.trim(), (status) => {
+        setScrapeStatus(status);
+      });
+      setScrapeStatus(`✅ Berhasil! "${result.title}" — ${result.chunks} chunks diindeks`);
+      fetchDocs();
+      setTimeout(() => {
+        setIsURLModalOpen(false);
+        setUrlInput('');
+        setScrapeStatus('');
+      }, 2000);
+    } catch (err: any) {
+      setScrapeStatus(`❌ Gagal: ${err.message}`);
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
+  const handleViewChunks = async (docId: string, docName: string) => {
+    setLoadingChunks(true);
+    setViewingDocName(docName);
+    try {
+      const chunks = await getDocumentChunks(docId);
+      setViewingChunks(chunks);
+    } catch (err) {
+      console.error('Failed to load chunks:', err);
+      setViewingChunks([]);
+    } finally {
+      setLoadingChunks(false);
+    }
+  };
+
+  const handleDelete = async (docId: string) => {
+    if (!confirm('Hapus dokumen ini beserta semua chunks-nya?')) return;
+    try {
+      await deleteDocument(docId);
+      fetchDocs();
+    } catch (err: any) {
+      alert('Gagal menghapus: ' + err.message);
+    }
+  };
+
+  const handleReindex = async (docId: string) => {
+    alert('Fitur re-index akan tersedia di versi mendatang.');
+  };
+
+  const handleAutoCrawl = async () => {
+    setIsCrawling(true);
+    setCrawlProgress('Memulai auto-crawl peraturan.go.id...');
+    try {
+      const result = await crawlPeraturanUU(1, (status, current, total) => {
+        if (total > 0) {
+          setCrawlProgress(`${status} (${current}/${total})`);
+        } else {
+          setCrawlProgress(status);
+        }
+      });
+      setCrawlProgress(`Selesai! Ditemukan: ${result.discovered}, Diindeks: ${result.indexed}, Sudah ada: ${result.skipped}, Gagal: ${result.errors}`);
+      fetchDocs();
+    } catch (err: any) {
+      setCrawlProgress(`Error: ${err.message}`);
+    } finally {
+      setIsCrawling(false);
+    }
+  };
+
+  const filteredDocs = docs.filter(doc => {
     const matchSearch = doc.name.toLowerCase().includes(search.toLowerCase());
     const matchType = typeFilter === 'Semua' || doc.type === typeFilter;
     const matchStatus = statusFilter === 'Semua' || doc.status === statusFilter;
     return matchSearch && matchType && matchStatus;
   });
 
-  const handleTestQuery = () => {
+  const handleTestQuery = async () => {
     if (!testQuery.trim()) return;
     setIsQuerying(true);
-    setTimeout(() => {
-      setQueryResults([
-        { doc: 'KUHP_Baru_UU_1_2023.pdf', score: 0.92, text: 'Pasal 12: Tindak pidana korupsi sebagaimana dimaksud dalam ayat (1) dipidana dengan pidana penjara paling singkat 4 tahun...' },
-        { doc: 'Putusan_MK_No_90_PUU_XXI_2023.pdf', score: 0.85, text: 'Menimbang bahwa berdasarkan pertimbangan hukum di atas, Mahkamah berpendapat bahwa permohonan pemohon beralasan menurut hukum...' }
-      ]);
+    try {
+      const results = await searchContext(testQuery);
+      setQueryResults(results.map((r: any) => ({
+        doc: r.name,
+        score: r.similarity.toFixed(2),
+        text: r.content
+      })));
+    } catch (err) {
+      console.error(err);
+    } finally {
       setIsQuerying(false);
-    }, 1500);
+    }
   };
 
   const TypeIcon = ({ type }: { type: string }) => {
     if (type === 'PDF') return <FileText size={14} className="text-[#E31B23]" />;
     if (type === 'TXT') return <File size={14} className="text-[#8899AA]" />;
     if (type === 'URL') return <Globe size={14} className="text-[#003087]" />;
+    if (type === 'CMS') return <Database size={14} className="text-[#4A148C]" />;
     return <File size={14} />;
   };
 
   const RAGStatusBadge = ({ status, progress }: { status: string, progress?: number }) => {
-    if (status === 'Indexed') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#1A8C5B] bg-[#E8F5EE] px-2 py-0.5 rounded w-fit"><CheckCircle2 size={10}/> INDEXED</span>;
+    if (status === 'Indexed') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#1A8C5B] bg-[#E8F5EE] px-2 py-0.5 rounded w-fit"><CheckCircle2 size={10} /> INDEXED</span>;
     if (status === 'Processing') return (
       <div className="flex flex-col gap-1 w-24">
-        <span className="flex items-center gap-1 text-[10px] font-bold text-[#4A5FD4] bg-[#EEF0FF] px-2 py-0.5 rounded w-fit"><Loader2 size={10} className="animate-spin"/> PROCESSING</span>
+        <span className="flex items-center gap-1 text-[10px] font-bold text-[#4A5FD4] bg-[#EEF0FF] px-2 py-0.5 rounded w-fit"><Loader2 size={10} className="animate-spin" /> PROCESSING</span>
         <div className="w-full bg-gray-200 rounded-full h-1.5"><div className="bg-[#4A5FD4] h-1.5 rounded-full" style={{ width: `${progress}%` }}></div></div>
       </div>
     );
-    if (status === 'Pending') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#C47A00] bg-[#FFF6E0] px-2 py-0.5 rounded w-fit"><Clock size={10}/> PENDING</span>;
-    if (status === 'Error') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#C41A1A] bg-[#FFEBEB] px-2 py-0.5 rounded w-fit"><AlertCircle size={10}/> ERROR</span>;
+    if (status === 'Pending') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#C47A00] bg-[#FFF6E0] px-2 py-0.5 rounded w-fit"><Clock size={10} /> PENDING</span>;
+    if (status === 'Error') return <span className="flex items-center gap-1 text-[10px] font-bold text-[#C41A1A] bg-[#FFEBEB] px-2 py-0.5 rounded w-fit"><AlertCircle size={10} /> ERROR</span>;
     return null;
   };
 
   return (
-    <div className="flex h-full gap-4 relative">
-      {/* Main Content */}
-      <div className={`flex-1 space-y-4 transition-all duration-300 ${isTestPanelOpen ? 'lg:pr-[350px]' : ''}`}>
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={<Database size={18}/>} label="Total Dokumen" value="1,248" color="#003087" />
-          <StatCard icon={<Server size={18}/>} label="Ukuran Knowledge Base" value="4.2 GB" color="#4A148C" />
-          <StatCard icon={<Activity size={18}/>} label="Query per Hari" value="8,492" trend={12} color="#10B981" />
-          <StatCard icon={<CheckCircle2 size={18}/>} label="Akurasi Retrieval" value="94.2%" trend={2} color="#10B981" />
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2">
-              <UploadCloud size={14} /> Upload Dokumen
-            </button>
-            <button className="bg-white border border-[#E8EFF9] text-[#0D1B3E] px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-gray-50">
-              <LinkIcon size={14} /> Tambah URL
-            </button>
-            <button onClick={() => setIsTestPanelOpen(!isTestPanelOpen)} className={`px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 transition-colors ${isTestPanelOpen ? 'bg-[#4A148C] text-white' : 'bg-white border border-[#E8EFF9] text-[#0D1B3E] hover:bg-gray-50'}`}>
-              <Play size={14} /> Test Query
-            </button>
+    <>
+      <div className="flex h-full gap-4 relative">
+        {/* Main Content */}
+        <div className={`flex-1 space-y-4 transition-all duration-300 ${isTestPanelOpen ? 'lg:pr-[350px]' : ''}`}>
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard icon={<Database size={18} />} label="Total Dokumen" value={String(docs.length)} color="#003087" />
+            <StatCard icon={<Server size={18} />} label="Indexed" value={String(docs.filter(d => d.status === 'Indexed').length)} color="#4A148C" />
+            <StatCard icon={<Activity size={18} />} label="Processing" value={String(docs.filter(d => d.status === 'Processing').length)} color="#4A5FD4" />
+            <StatCard icon={<CheckCircle2 size={18} />} label="CMS Synced" value={String(docs.filter(d => d.type === 'CMS').length)} color="#10B981" />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-              <input type="text" placeholder="Cari dokumen..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[200px]" />
+
+          {/* Toolbar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => document.getElementById('rag-upload')?.click()}
+                className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2"
+              >
+                <UploadCloud size={14} /> Upload Dokumen
+              </button>
+              <input
+                type="file"
+                id="rag-upload"
+                className="hidden"
+                accept=".txt,.pdf,.doc,.docx"
+                onChange={handleFileUpload}
+              />
+              <button onClick={() => setIsURLModalOpen(true)} className="bg-white border border-[#E8EFF9] text-[#0D1B3E] px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-gray-50">
+                <LinkIcon size={14} /> Tambah URL
+              </button>
+              <button
+                onClick={handleSyncCMS}
+                disabled={isSyncing}
+                className="bg-[#4A148C] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-[#380b6e] disabled:opacity-50"
+              >
+                {isSyncing ? <><Loader2 size={14} className="animate-spin" /> Syncing...</> : <><RefreshCw size={14} /> Sync CMS Data</>}
+              </button>
+              <button
+                onClick={handleAutoCrawl}
+                disabled={isCrawling}
+                className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-[#002266] disabled:opacity-50"
+              >
+                {isCrawling ? <><Loader2 size={14} className="animate-spin" /> Crawling...</> : <><Bot size={14} /> Auto Crawl UU</>}
+              </button>
+              {(syncProgress || crawlProgress) && (
+                <span className="text-[11px] text-[#4A148C] font-medium bg-[#F3E8FF] px-3 py-1.5 rounded-[8px] max-w-[300px] truncate">
+                  {crawlProgress || syncProgress}
+                </span>
+              )}
+              <button onClick={() => setIsTestPanelOpen(!isTestPanelOpen)} className={`px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 transition-colors ${isTestPanelOpen ? 'bg-[#4A148C] text-white' : 'bg-white border border-[#E8EFF9] text-[#0D1B3E] hover:bg-gray-50'}`}>
+                <Play size={14} /> Test Query
+              </button>
             </div>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-              <option value="Semua">Semua Tipe</option>
-              <option value="PDF">PDF</option>
-              <option value="TXT">TXT</option>
-              <option value="URL">URL</option>
-            </select>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-              <option value="Semua">Semua Status</option>
-              <option value="Indexed">Indexed</option>
-              <option value="Processing">Processing</option>
-              <option value="Pending">Pending</option>
-              <option value="Error">Error</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
+                <input type="text" placeholder="Cari dokumen..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[200px]" />
+              </div>
+              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
+                <option value="Semua">Semua Tipe</option>
+                <option value="PDF">PDF</option>
+                <option value="TXT">TXT</option>
+                <option value="URL">URL</option>
+              </select>
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
+                <option value="Semua">Semua Status</option>
+                <option value="Indexed">Indexed</option>
+                <option value="Processing">Processing</option>
+                <option value="Pending">Pending</option>
+                <option value="Error">Error</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white border border-[#E8EFF9] rounded-[10px] overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[12px]">
+                <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
+                  <tr>
+                    <th className="p-3">Nama Dokumen</th>
+                    <th className="p-3">Tipe</th>
+                    <th className="p-3">Ukuran</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Chunks</th>
+                    <th className="p-3">Tgl Upload</th>
+                    <th className="p-3 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E8EFF9]">
+                  {filteredDocs.length > 0 ? filteredDocs.map((row, i) => (
+                    <tr key={i} className="hover:bg-[#F4F6FA]/50 transition-colors">
+                      <td className="p-3 font-medium text-[#0D1B3E] max-w-[250px] truncate" title={row.name}>{row.name}</td>
+                      <td className="p-3"><div className="flex items-center gap-1"><TypeIcon type={row.type} /> {row.type}</div></td>
+                      <td className="p-3 text-[#8899AA]">{row.size}</td>
+                      <td className="p-3"><RAGStatusBadge status={row.status} progress={row.progress} /></td>
+                      <td className="p-3 text-[#8899AA]">{row.chunks_count > 0 ? row.chunks_count.toLocaleString() : '-'}</td>
+                      <td className="p-3 text-[#8899AA]">{row.created_at ? new Date(row.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => handleReindex(row.id)} className="text-[#8899AA] hover:text-[#003087]" title="Re-index"><RefreshCw size={14} /></button>
+                          <button onClick={() => handleViewChunks(row.id, row.name)} className="text-[#8899AA] hover:text-[#003087]" title="Lihat Chunks"><Eye size={14} /></button>
+                          <button onClick={() => handleDelete(row.id)} className="text-[#8899AA] hover:text-[#E31B23]" title="Hapus"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-[#8899AA]">Tidak ada dokumen yang ditemukan.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-        {/* Table */}
-        <div className="bg-white border border-[#E8EFF9] rounded-[10px] overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[12px]">
-              <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
-                <tr>
-                  <th className="p-3">Nama Dokumen</th>
-                  <th className="p-3">Tipe</th>
-                  <th className="p-3">Ukuran</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Chunks</th>
-                  <th className="p-3">Tgl Upload</th>
-                  <th className="p-3 text-center">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E8EFF9]">
-                {filteredDocs.length > 0 ? filteredDocs.map((row, i) => (
-                  <tr key={i} className="hover:bg-[#F4F6FA]/50 transition-colors">
-                    <td className="p-3 font-medium text-[#0D1B3E] max-w-[250px] truncate" title={row.name}>{row.name}</td>
-                    <td className="p-3"><div className="flex items-center gap-1"><TypeIcon type={row.type}/> {row.type}</div></td>
-                    <td className="p-3 text-[#8899AA]">{row.size}</td>
-                    <td className="p-3"><RAGStatusBadge status={row.status} progress={row.progress} /></td>
-                    <td className="p-3 text-[#8899AA]">{row.chunks > 0 ? row.chunks.toLocaleString() : '-'}</td>
-                    <td className="p-3 text-[#8899AA]">{row.date}</td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button className="text-[#8899AA] hover:text-[#003087]" title="Re-index"><RefreshCw size={14}/></button>
-                        <button className="text-[#8899AA] hover:text-[#003087]" title="Lihat Chunks"><Eye size={14}/></button>
-                        <button className="text-[#8899AA] hover:text-[#E31B23]" title="Hapus"><Trash2 size={14}/></button>
+        {/* Test Query Panel */}
+        {isTestPanelOpen && (
+          <div className="fixed inset-y-0 right-0 w-[350px] bg-white border-l border-[#E8EFF9] shadow-2xl z-40 flex flex-col lg:absolute lg:h-auto lg:inset-y-0 lg:shadow-none animate-in slide-in-from-right duration-300">
+            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
+              <h2 className="font-bold text-[14px] text-[#0D1B3E] flex items-center gap-2"><Bot size={16} /> Test RAG Retrieval</h2>
+              <button onClick={() => setIsTestPanelOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors lg:hidden"><X size={18} /></button>
+            </div>
+
+            <div className="p-4 border-b border-[#E8EFF9] shrink-0 bg-white">
+              <label className="block text-[11px] font-bold text-[#8899AA] uppercase mb-2">Query Pertanyaan</label>
+              <textarea
+                value={testQuery}
+                onChange={e => setTestQuery(e.target.value)}
+                placeholder="Contoh: Apa hukuman bagi tindak pidana korupsi menurut KUHP baru?"
+                className="w-full px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] resize-none h-[80px] mb-2"
+              ></textarea>
+              <button
+                onClick={handleTestQuery}
+                disabled={isQuerying || !testQuery.trim()}
+                className="w-full bg-[#4A148C] text-white py-2 rounded-[8px] text-[12px] font-bold hover:bg-[#380b6e] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isQuerying ? <><Loader2 size={14} className="animate-spin" /> Mencari...</> : <><Search size={14} /> Jalankan Query</>}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 bg-[#F4F6FA] custom-scrollbar">
+              <div className="text-[11px] font-bold text-[#8899AA] uppercase mb-3">Hasil Retrieval ({queryResults.length} Chunks)</div>
+
+              {queryResults.length > 0 ? (
+                <div className="space-y-3">
+                  {queryResults.map((res, i) => (
+                    <div key={i} className="bg-white p-3 rounded-[8px] border border-[#E8EFF9] shadow-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#003087] truncate max-w-[200px]">
+                          <FileText size={12} className="shrink-0" /> <span className="truncate">{res.doc}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-[#10B981] bg-[#E8F5EE] px-1.5 py-0.5 rounded shrink-0">
+                          Score: {res.score}
+                        </span>
                       </div>
-                    </td>
-                  </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-[#8899AA]">Tidak ada dokumen yang ditemukan.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <p className="text-[11px] text-[#4A5568] leading-relaxed border-l-2 border-[#E8EFF9] pl-2">
+                        "...{res.text}..."
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !isQuerying && <div className="text-center text-[#8899AA] text-[12px] mt-10">Belum ada hasil. Masukkan query untuk menguji retrieval.</div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Test Query Panel */}
-      {isTestPanelOpen && (
-        <div className="fixed inset-y-0 right-0 w-[350px] bg-white border-l border-[#E8EFF9] shadow-2xl z-40 flex flex-col lg:absolute lg:h-auto lg:inset-y-0 lg:shadow-none animate-in slide-in-from-right duration-300">
-          <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-            <h2 className="font-bold text-[14px] text-[#0D1B3E] flex items-center gap-2"><Bot size={16}/> Test RAG Retrieval</h2>
-            <button onClick={() => setIsTestPanelOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors lg:hidden"><X size={18} /></button>
-          </div>
-          
-          <div className="p-4 border-b border-[#E8EFF9] shrink-0 bg-white">
-            <label className="block text-[11px] font-bold text-[#8899AA] uppercase mb-2">Query Pertanyaan</label>
-            <textarea 
-              value={testQuery}
-              onChange={e => setTestQuery(e.target.value)}
-              placeholder="Contoh: Apa hukuman bagi tindak pidana korupsi menurut KUHP baru?" 
-              className="w-full px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] resize-none h-[80px] mb-2"
-            ></textarea>
-            <button 
-              onClick={handleTestQuery}
-              disabled={isQuerying || !testQuery.trim()}
-              className="w-full bg-[#4A148C] text-white py-2 rounded-[8px] text-[12px] font-bold hover:bg-[#380b6e] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isQuerying ? <><Loader2 size={14} className="animate-spin"/> Mencari...</> : <><Search size={14}/> Jalankan Query</>}
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 bg-[#F4F6FA] custom-scrollbar">
-            <div className="text-[11px] font-bold text-[#8899AA] uppercase mb-3">Hasil Retrieval ({queryResults.length} Chunks)</div>
-            
-            {queryResults.length > 0 ? (
-              <div className="space-y-3">
-                {queryResults.map((res, i) => (
-                  <div key={i} className="bg-white p-3 rounded-[8px] border border-[#E8EFF9] shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#003087] truncate max-w-[200px]">
-                        <FileText size={12} className="shrink-0"/> <span className="truncate">{res.doc}</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-[#10B981] bg-[#E8F5EE] px-1.5 py-0.5 rounded shrink-0">
-                        Score: {res.score}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#4A5568] leading-relaxed border-l-2 border-[#E8EFF9] pl-2">
-                      "...{res.text}..."
-                    </p>
-                  </div>
-                ))}
+      {/* URL Scraping Modal */}
+      {
+        isURLModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
+              <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA]">
+                <h2 className="font-bold text-[14px] text-[#0D1B3E] flex items-center gap-2"><Globe size={16} className="text-[#003087]" /> Scrape URL ke RAG</h2>
+                <button onClick={() => { setIsURLModalOpen(false); setScrapeStatus(''); }} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50"><X size={18} /></button>
               </div>
-            ) : (
-              !isQuerying && <div className="text-center text-[#8899AA] text-[12px] mt-10">Belum ada hasil. Masukkan query untuk menguji retrieval.</div>
-            )}
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">URL Peraturan / Dokumen Hukum</label>
+                  <input
+                    type="url"
+                    placeholder="https://peraturan.go.id/id/uu-no-2-tahun-2025"
+                    value={urlInput}
+                    onChange={e => setUrlInput(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono"
+                    disabled={isScraping}
+                  />
+                  <p className="text-[10px] text-[#8899AA] mt-1">Masukkan URL halaman peraturan. Firecrawl akan mengambil konten dan mengindeksnya ke RAG.</p>
+                </div>
+
+                {scrapeStatus && (
+                  <div className={`p-3 rounded-[8px] text-[12px] font-medium ${scrapeStatus.includes('Berhasil') ? 'bg-[#E8F5EE] text-[#1A8C5B]' :
+                    scrapeStatus.includes('Gagal') ? 'bg-[#FFEBEB] text-[#C41A1A]' :
+                      'bg-[#EEF0FF] text-[#4A5FD4]'
+                    }`}>
+                    {isScraping && <Loader2 size={12} className="inline animate-spin mr-2" />}
+                    {scrapeStatus}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleScrapeURL}
+                  disabled={isScraping || !urlInput.trim()}
+                  className="w-full bg-[#003087] text-white py-2.5 rounded-[8px] text-[12px] font-bold hover:bg-[#002266] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isScraping ? <><Loader2 size={14} className="animate-spin" /> Scraping...</> : <><Globe size={14} /> Scrape & Indeks ke RAG</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* View Chunks Modal */}
+      {viewingChunks !== null && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
+              <h2 className="font-bold text-[14px] text-[#0D1B3E] flex items-center gap-2"><Eye size={16} className="text-[#003087]" /> Chunks: {viewingDocName}</h2>
+              <button onClick={() => setViewingChunks(null)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {loadingChunks ? (
+                <div className="text-center py-10"><Loader2 size={24} className="animate-spin text-[#003087] mx-auto" /><p className="text-[12px] text-[#8899AA] mt-2">Memuat chunks...</p></div>
+              ) : viewingChunks.length === 0 ? (
+                <div className="text-center py-10 text-[#8899AA] text-[12px]">Tidak ada chunks ditemukan.</div>
+              ) : (
+                viewingChunks.map((chunk: any, i: number) => (
+                  <div key={chunk.id} className="bg-[#F4F6FA] p-3 rounded-[8px] border border-[#E8EFF9]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold text-[#003087] bg-[#E8EFF9] px-2 py-0.5 rounded">Chunk {i + 1}</span>
+                      <span className="text-[10px] text-[#8899AA]">{chunk.content.length} chars</span>
+                    </div>
+                    <p className="text-[11px] text-[#0D1B3E] leading-relaxed whitespace-pre-wrap">{chunk.content}</p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -1040,16 +1929,16 @@ const AILegalConfigPage = () => {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [isStreaming, setIsStreaming] = useState(true);
-  
+
   // Model Config State
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [apiKey, setApiKey] = useState('sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
   const [endpoint, setEndpoint] = useState('https://api.openai.com/v1/chat/completions');
-  
+
   // Prompt State
   const [activeTemplateId, setActiveTemplateId] = useState('system');
   const [templateContent, setTemplateContent] = useState(dummyPromptTemplates[0].content);
-  
+
   // Parameter State
   const [temperature, setTemperature] = useState(0.5);
   const [maxTokens, setMaxTokens] = useState(4096);
@@ -1091,11 +1980,10 @@ const AILegalConfigPage = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-[12px] font-bold border-b-2 transition-colors ${
-              activeTab === tab.id 
-                ? 'border-[#003087] text-[#003087]' 
-                : 'border-transparent text-[#8899AA] hover:text-[#0D1B3E]'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 text-[12px] font-bold border-b-2 transition-colors ${activeTab === tab.id
+              ? 'border-[#003087] text-[#003087]'
+              : 'border-transparent text-[#8899AA] hover:text-[#0D1B3E]'
+              }`}
           >
             {tab.icon} {tab.label}
           </button>
@@ -1104,7 +1992,7 @@ const AILegalConfigPage = () => {
 
       {/* Tab Content */}
       <div className="bg-white border border-[#E8EFF9] border-t-0 rounded-b-[10px] p-6 shadow-sm min-h-[400px]">
-        
+
         {/* TAB: MODEL */}
         {activeTab === 'model' && (
           <div className="max-w-2xl space-y-6 animate-in fade-in duration-300">
@@ -1120,8 +2008,8 @@ const AILegalConfigPage = () => {
 
             <div>
               <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Pilih Model AI</label>
-              <select 
-                value={selectedModel} 
+              <select
+                value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
               >
@@ -1136,13 +2024,13 @@ const AILegalConfigPage = () => {
             <div>
               <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">API Key</label>
               <div className="relative">
-                <input 
-                  type={showApiKey ? "text" : "password"} 
+                <input
+                  type={showApiKey ? "text" : "password"}
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
-                  className="w-full pl-3 pr-10 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono" 
+                  className="w-full pl-3 pr-10 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono"
                 />
-                <button 
+                <button
                   onClick={() => setShowApiKey(!showApiKey)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8899AA] hover:text-[#0D1B3E]"
                 >
@@ -1154,11 +2042,11 @@ const AILegalConfigPage = () => {
 
             <div>
               <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Endpoint URL</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={endpoint}
                 onChange={e => setEndpoint(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono text-[#8899AA]" 
+                className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono text-[#8899AA]"
               />
             </div>
           </div>
@@ -1174,11 +2062,10 @@ const AILegalConfigPage = () => {
                 <button
                   key={template.id}
                   onClick={() => handleTemplateChange(template.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-[8px] text-[12px] font-medium transition-colors ${
-                    activeTemplateId === template.id 
-                      ? 'bg-[#003087] text-white' 
-                      : 'bg-[#F4F6FA] text-[#0D1B3E] hover:bg-[#E8EFF9]'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-[8px] text-[12px] font-medium transition-colors ${activeTemplateId === template.id
+                    ? 'bg-[#003087] text-white'
+                    : 'bg-[#F4F6FA] text-[#0D1B3E] hover:bg-[#E8EFF9]'
+                    }`}
                 >
                   {template.name}
                 </button>
@@ -1193,12 +2080,12 @@ const AILegalConfigPage = () => {
                   <Play size={12} /> Preview Prompt
                 </button>
               </div>
-              <textarea 
+              <textarea
                 value={templateContent}
                 onChange={e => setTemplateContent(e.target.value)}
                 className="flex-1 w-full p-4 rounded-[8px] border border-[#E8EFF9] bg-[#0D1B3E] text-[#10B981] font-mono text-[13px] outline-none focus:border-[#003087] resize-none leading-relaxed"
               ></textarea>
-              
+
               {/* Variables Helper */}
               <div className="mt-4 p-3 bg-[#F4F6FA] rounded-[8px] border border-[#E8EFF9]">
                 <div className="text-[11px] font-bold text-[#0D1B3E] mb-2">Variabel Dinamis Tersedia:</div>
@@ -1222,10 +2109,10 @@ const AILegalConfigPage = () => {
                 <label className="text-[12px] font-bold text-[#0D1B3E]">Temperature</label>
                 <span className="text-[12px] font-mono font-bold text-[#003087] bg-[#EEF0FF] px-2 py-0.5 rounded">{temperature}</span>
               </div>
-              <input 
-                type="range" min="0" max="1" step="0.1" 
+              <input
+                type="range" min="0" max="1" step="0.1"
                 value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))}
-                className="w-full accent-[#003087]" 
+                className="w-full accent-[#003087]"
               />
               <div className="flex justify-between text-[10px] text-[#8899AA] mt-1">
                 <span>Lebih Konsisten (0)</span>
@@ -1238,10 +2125,10 @@ const AILegalConfigPage = () => {
                 <label className="text-[12px] font-bold text-[#0D1B3E]">Max Tokens</label>
                 <span className="text-[12px] font-mono font-bold text-[#003087] bg-[#EEF0FF] px-2 py-0.5 rounded">{maxTokens}</span>
               </div>
-              <input 
-                type="range" min="256" max="8192" step="256" 
+              <input
+                type="range" min="256" max="8192" step="256"
                 value={maxTokens} onChange={e => setMaxTokens(parseInt(e.target.value))}
-                className="w-full accent-[#003087]" 
+                className="w-full accent-[#003087]"
               />
               <div className="flex justify-between text-[10px] text-[#8899AA] mt-1">
                 <span>Pendek (256)</span>
@@ -1254,10 +2141,10 @@ const AILegalConfigPage = () => {
                 <label className="text-[12px] font-bold text-[#0D1B3E]">Top-P</label>
                 <span className="text-[12px] font-mono font-bold text-[#003087] bg-[#EEF0FF] px-2 py-0.5 rounded">{topP}</span>
               </div>
-              <input 
-                type="range" min="0" max="1" step="0.05" 
+              <input
+                type="range" min="0" max="1" step="0.05"
                 value={topP} onChange={e => setTopP(parseFloat(e.target.value))}
-                className="w-full accent-[#003087]" 
+                className="w-full accent-[#003087]"
               />
             </div>
 
@@ -1274,11 +2161,11 @@ const AILegalConfigPage = () => {
 
               <div>
                 <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Stop Sequences (JSON Array)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={stopSequences}
                   onChange={e => setStopSequences(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono text-[#0D1B3E]" 
+                  className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] font-mono text-[#0D1B3E]"
                 />
                 <p className="text-[10px] text-[#8899AA] mt-1">Karakter atau kata yang akan menghentikan generasi teks AI.</p>
               </div>
@@ -1320,78 +2207,78 @@ const AILegalConfigPage = () => {
 };
 
 const dummyLegalDocs = [
-  { 
-    id: 1, 
-    title: 'Kitab Undang-Undang Hukum Pidana (KUHP)', 
-    category: 'UU', 
-    number: '1', 
-    year: '2023', 
-    status: 'Aktif', 
+  {
+    id: 1,
+    title: 'Kitab Undang-Undang Hukum Pidana (KUHP)',
+    category: 'UU',
+    number: '1',
+    year: '2023',
+    status: 'Aktif',
     agency: 'DPR RI & Pemerintah',
     tags: ['Pidana', 'Reformasi Hukum'],
     file: 'kuhp_2023.pdf',
     replaces: null,
     replacedBy: null
   },
-  { 
-    id: 2, 
-    title: 'Undang-Undang tentang Cipta Kerja', 
-    category: 'UU', 
-    number: '11', 
-    year: '2020', 
-    status: 'Direvisi', 
+  {
+    id: 2,
+    title: 'Undang-Undang tentang Cipta Kerja',
+    category: 'UU',
+    number: '11',
+    year: '2020',
+    status: 'Direvisi',
     agency: 'DPR RI',
     tags: ['Ekonomi', 'Investigasi', 'Ketenagakerjaan'],
     file: 'uu_11_2020.pdf',
     replaces: null,
     replacedBy: 'UU No. 6 Tahun 2023'
   },
-  { 
-    id: 3, 
-    title: 'Undang-Undang tentang Penetapan Peraturan Pemerintah Pengganti Undang-Undang Nomor 2 Tahun 2022 tentang Cipta Kerja menjadi Undang-Undang', 
-    category: 'UU', 
-    number: '6', 
-    year: '2023', 
-    status: 'Aktif', 
+  {
+    id: 3,
+    title: 'Undang-Undang tentang Penetapan Peraturan Pemerintah Pengganti Undang-Undang Nomor 2 Tahun 2022 tentang Cipta Kerja menjadi Undang-Undang',
+    category: 'UU',
+    number: '6',
+    year: '2023',
+    status: 'Aktif',
     agency: 'DPR RI',
     tags: ['Ekonomi', 'Cipta Kerja'],
     file: 'uu_6_2023.pdf',
     replaces: 'UU No. 11 Tahun 2020',
     replacedBy: null
   },
-  { 
-    id: 4, 
-    title: 'Peraturan Pemerintah tentang Penyelenggaraan Bidang Perumahan', 
-    category: 'PP', 
-    number: '12', 
-    year: '2021', 
-    status: 'Aktif', 
+  {
+    id: 4,
+    title: 'Peraturan Pemerintah tentang Penyelenggaraan Bidang Perumahan',
+    category: 'PP',
+    number: '12',
+    year: '2021',
+    status: 'Aktif',
     agency: 'Kementerian PUPR',
     tags: ['Properti', 'Perumahan'],
     file: 'pp_12_2021.pdf',
     replaces: null,
     replacedBy: null
   },
-  { 
-    id: 5, 
-    title: 'Peraturan Daerah Provinsi DKI Jakarta tentang Penanggulangan Corona Virus Disease 2019', 
-    category: 'Perda', 
-    number: '2', 
-    year: '2020', 
-    status: 'Dicabut', 
+  {
+    id: 5,
+    title: 'Peraturan Daerah Provinsi DKI Jakarta tentang Penanggulangan Corona Virus Disease 2019',
+    category: 'Perda',
+    number: '2',
+    year: '2020',
+    status: 'Dicabut',
     agency: 'DPRD DKI Jakarta',
     tags: ['Kesehatan', 'Pandemi'],
     file: 'perda_2_2020.pdf',
     replaces: null,
     replacedBy: 'Perda No. 5 Tahun 2022'
   },
-  { 
-    id: 6, 
-    title: 'Putusan Mahkamah Konstitusi terkait Syarat Usia Capres-Cawapres', 
-    category: 'Putusan', 
-    number: '90/PUU-XXI/2023', 
-    year: '2023', 
-    status: 'Aktif', 
+  {
+    id: 6,
+    title: 'Putusan Mahkamah Konstitusi terkait Syarat Usia Capres-Cawapres',
+    category: 'Putusan',
+    number: '90/PUU-XXI/2023',
+    year: '2023',
+    status: 'Aktif',
     agency: 'Mahkamah Konstitusi',
     tags: ['Pemilu', 'Konstitusi'],
     file: 'putusan_mk_90_2023.pdf',
@@ -1459,10 +2346,10 @@ const DokumenHukumPage = () => {
     <div className="space-y-6">
       {/* Stats Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<FileCheck size={18}/>} label="Total Dokumen" value="4,821" color="#003087" />
-        <StatCard icon={<Layers size={18}/>} label="Undang-Undang (UU)" value="1,240" color="#4A148C" />
-        <StatCard icon={<FilePlus size={18}/>} label="Dokumen Bulan Ini" value="42" trend={15} color="#10B981" />
-        <StatCard icon={<Ban size={18}/>} label="Dicabut/Direvisi" value="382" color="#E31B23" />
+        <StatCard icon={<FileCheck size={18} />} label="Total Dokumen" value="4,821" color="#003087" />
+        <StatCard icon={<Layers size={18} />} label="Undang-Undang (UU)" value="1,240" color="#4A148C" />
+        <StatCard icon={<FilePlus size={18} />} label="Dokumen Bulan Ini" value="42" trend={15} color="#10B981" />
+        <StatCard icon={<Ban size={18} />} label="Dicabut/Direvisi" value="382" color="#E31B23" />
       </div>
 
       {/* Toolbar */}
@@ -1474,12 +2361,12 @@ const DokumenHukumPage = () => {
             </button>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-              <input 
-                type="text" 
-                placeholder="Cari judul atau nomor..." 
+              <input
+                type="text"
+                placeholder="Cari judul atau nomor..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]" 
+                className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]"
               />
             </div>
           </div>
@@ -1531,9 +2418,9 @@ const DokumenHukumPage = () => {
             <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
               <tr>
                 <th className="p-3 w-10 text-center">
-                  <input 
-                    type="checkbox" 
-                    className="rounded border-gray-300" 
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300"
                     checked={selectedDocs.length === sortedDocs.length && sortedDocs.length > 0}
                     onChange={toggleSelectAll}
                   />
@@ -1550,18 +2437,20 @@ const DokumenHukumPage = () => {
               {sortedDocs.map((doc) => (
                 <tr key={doc.id} className={`hover:bg-[#F4F6FA]/50 transition-colors ${selectedDocs.includes(doc.id) ? 'bg-[#EEF0FF]/30' : ''}`}>
                   <td className="p-3 text-center">
-                    <input 
-                      type="checkbox" 
-                      className="rounded border-gray-300" 
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300"
                       checked={selectedDocs.includes(doc.id)}
                       onChange={() => toggleSelect(doc.id)}
                     />
                   </td>
                   <td className="p-3 max-w-[300px]">
                     <div className="font-bold text-[#0D1B3E] leading-tight mb-1">{doc.title}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {doc.tags.map((tag, i) => (
-                        <span key={i} className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded flex items-center gap-1"><Tag size={8}/> {tag}</span>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {doc.tags && doc.tags.map(tag => (
+                        <span key={tag} className={`text-[9px] px-1.5 py-0.5 font-bold text-[#003087] bg-[#003087]/5 border border-[#003087]/20 rounded-md uppercase tracking-tight`}>
+                          {tag}
+                        </span>
                       ))}
                     </div>
                   </td>
@@ -1582,10 +2471,10 @@ const DokumenHukumPage = () => {
                   <td className="p-3 text-[#0D1B3E] text-[11px]">{doc.agency}</td>
                   <td className="p-3">
                     <div className="flex items-center justify-center gap-2">
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Preview/Buka"><Eye size={14}/></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Download PDF"><Download size={14}/></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Tandai Dicabut/Direvisi"><History size={14}/></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#0D1B3E] hover:bg-gray-100 rounded transition-colors"><MoreVertical size={14}/></button>
+                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Preview/Buka"><Eye size={14} /></button>
+                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Download PDF"><Download size={14} /></button>
+                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Tandai Dicabut/Direvisi"><History size={14} /></button>
+                      <button className="p-1.5 text-[#8899AA] hover:text-[#0D1B3E] hover:bg-gray-100 rounded transition-colors"><MoreVertical size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -1596,11 +2485,11 @@ const DokumenHukumPage = () => {
         <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
           <div>Menampilkan 1-{sortedDocs.length} dari 4,821 data</div>
           <div className="flex items-center gap-1">
-            <button className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={14}/></button>
+            <button className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={14} /></button>
             <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">1</button>
             <button className="w-6 h-6 hover:bg-gray-100 rounded">2</button>
             <button className="w-6 h-6 hover:bg-gray-100 rounded">3</button>
-            <button className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={14}/></button>
+            <button className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={14} /></button>
           </div>
         </div>
       </div>
@@ -1610,7 +2499,7 @@ const DokumenHukumPage = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><FilePlus size={18}/> Upload Dokumen Hukum Baru</h2>
+              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><FilePlus size={18} /> Upload Dokumen Hukum Baru</h2>
               <button onClick={() => setIsUploadModalOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
@@ -1618,7 +2507,7 @@ const DokumenHukumPage = () => {
                 <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Dokumen <span className="text-[#E31B23]">*</span></label>
                 <input type="text" placeholder="Masukkan judul lengkap dokumen..." className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Kategori <span className="text-[#E31B23]">*</span></label>
@@ -1712,10 +2601,10 @@ const SubscriptionPage = () => {
     <div className="space-y-6">
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Users size={18}/>} label="Total Subscriber Aktif" value="8,492" trend={5} color="#003087" />
-        <StatCard icon={<DollarSign size={18}/>} label="Revenue Bulan Ini" value="Rp133,8Jt" trend={15} color="#10B981" />
-        <StatCard icon={<TrendingDown size={18}/>} label="Churn Rate" value="2.4%" trend={-1} color="#E31B23" />
-        <StatCard icon={<TrendingUp size={18}/>} label="Subscriber Baru" value="142" trend={8} color="#10B981" />
+        <StatCard icon={<Users size={18} />} label="Total Subscriber Aktif" value="8,492" trend={5} color="#003087" />
+        <StatCard icon={<DollarSign size={18} />} label="Revenue Bulan Ini" value="Rp133,8Jt" trend={15} color="#10B981" />
+        <StatCard icon={<TrendingDown size={18} />} label="Churn Rate" value="2.4%" trend={-1} color="#E31B23" />
+        <StatCard icon={<TrendingUp size={18} />} label="Subscriber Baru" value="142" trend={8} color="#10B981" />
       </div>
 
       {/* Tabs */}
@@ -1728,11 +2617,10 @@ const SubscriptionPage = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-[12px] font-bold border-b-2 transition-colors ${
-              activeTab === tab.id 
-                ? 'border-[#003087] text-[#003087]' 
-                : 'border-transparent text-[#8899AA] hover:text-[#0D1B3E]'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 text-[12px] font-bold border-b-2 transition-colors ${activeTab === tab.id
+              ? 'border-[#003087] text-[#003087]'
+              : 'border-transparent text-[#8899AA] hover:text-[#0D1B3E]'
+              }`}
           >
             {tab.icon} {tab.label}
           </button>
@@ -1741,7 +2629,7 @@ const SubscriptionPage = () => {
 
       {/* Tab Content */}
       <div className="bg-white border border-[#E8EFF9] border-t-0 rounded-b-[10px] p-6 shadow-sm min-h-[400px]">
-        
+
         {/* TAB: SUBSCRIBERS */}
         {activeTab === 'subscribers' && (
           <div className="space-y-4 animate-in fade-in duration-300">
@@ -1749,12 +2637,12 @@ const SubscriptionPage = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-                  <input 
-                    type="text" 
-                    placeholder="Cari nama/email..." 
+                  <input
+                    type="text"
+                    placeholder="Cari nama/email..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]" 
+                    className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]"
                   />
                 </div>
                 <select value={planFilter} onChange={e => setPlanFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
@@ -1806,7 +2694,7 @@ const SubscriptionPage = () => {
                       <td className="p-3 text-[#0D1B3E]">{sub.end}</td>
                       <td className="p-3 font-bold text-[#0D1B3E]">{sub.totalPaid}</td>
                       <td className="p-3 text-center">
-                        <button className="text-[#8899AA] hover:text-[#0D1B3E]"><MoreVertical size={14}/></button>
+                        <button className="text-[#8899AA] hover:text-[#0D1B3E]"><MoreVertical size={14} /></button>
                       </td>
                     </tr>
                   ))}
@@ -1887,15 +2775,14 @@ const SubscriptionPage = () => {
                       <td className="p-3 font-black text-[#0D1B3E]">{trx.amount}</td>
                       <td className="p-3 text-[#8899AA]">{trx.method}</td>
                       <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider ${
-                          trx.status === 'Berhasil' ? 'bg-[#E8F5EE] text-[#1A8C5B]' : 
+                        <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider ${trx.status === 'Berhasil' ? 'bg-[#E8F5EE] text-[#1A8C5B]' :
                           trx.status === 'Pending' ? 'bg-[#FFF6E0] text-[#C47A00]' : 'bg-[#FFEBEB] text-[#C41A1A]'
-                        }`}>
+                          }`}>
                           {trx.status}
                         </span>
                       </td>
                       <td className="p-3 text-center">
-                        <button className="text-[#8899AA] hover:text-[#003087] px-2"><Eye size={14}/></button>
+                        <button className="text-[#8899AA] hover:text-[#003087] px-2"><Eye size={14} /></button>
                       </td>
                     </tr>
                   ))}
@@ -1912,7 +2799,7 @@ const SubscriptionPage = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><User size={18}/> Detail Subscriber</h2>
+              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><User size={18} /> Detail Subscriber</h2>
               <button onClick={() => setSelectedSub(null)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
@@ -1940,7 +2827,7 @@ const SubscriptionPage = () => {
               </div>
 
               <div>
-                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Wallet size={14}/> Fitur yang Diakses</h4>
+                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Wallet size={14} /> Fitur yang Diakses</h4>
                 <div className="flex flex-wrap gap-2">
                   {['Investigasi', 'AI Legal Assistant', 'Download PDF', 'Newsletter Premium'].map((f, i) => (
                     <span key={i} className="px-3 py-1.5 bg-[#EEF0FF] text-[#003087] text-[11px] font-bold rounded-full">{f}</span>
@@ -1949,7 +2836,7 @@ const SubscriptionPage = () => {
               </div>
 
               <div>
-                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><HistoryIcon size={14}/> Riwayat Pembayaran Terakhir</h4>
+                <h4 className="text-[13px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><HistoryIcon size={14} /> Riwayat Pembayaran Terakhir</h4>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between p-3 bg-white border border-[#E8EFF9] rounded-[8px]">
                     <div>
@@ -2133,10 +3020,10 @@ const AdsManagementPage = () => {
     <div className="space-y-4 relative">
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Megaphone size={18}/>} label="Iklan Aktif" value="12" color="#003087" />
-        <StatCard icon={<Eye size={18}/>} label="Total Impressions" value="1.2M" trend={15} color="#4A148C" />
-        <StatCard icon={<MousePointer2 size={18}/>} label="Total Clicks" value="45.2K" trend={8} color="#10B981" />
-        <StatCard icon={<TrendingUp size={18}/>} label="Avg. CTR" value="3.2%" trend={2} color="#F59E0B" />
+        <StatCard icon={<Megaphone size={18} />} label="Iklan Aktif" value="12" color="#003087" />
+        <StatCard icon={<Eye size={18} />} label="Total Impressions" value="1.2M" trend={15} color="#4A148C" />
+        <StatCard icon={<MousePointer2 size={18} />} label="Total Clicks" value="45.2K" trend={8} color="#10B981" />
+        <StatCard icon={<TrendingUp size={18} />} label="Avg. CTR" value="3.2%" trend={2} color="#F59E0B" />
       </div>
 
       {/* Toolbar */}
@@ -2207,9 +3094,9 @@ const AdsManagementPage = () => {
         <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
           <div>Menampilkan {filteredAds.length} data</div>
           <div className="flex items-center gap-1">
-            <button className="p-1 hover:bg-gray-100 rounded opacity-50"><ChevronLeft size={14}/></button>
+            <button className="p-1 hover:bg-gray-100 rounded opacity-50"><ChevronLeft size={14} /></button>
             <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">1</button>
-            <button className="p-1 hover:bg-gray-100 rounded opacity-50"><ChevronRight size={14}/></button>
+            <button className="p-1 hover:bg-gray-100 rounded opacity-50"><ChevronRight size={14} /></button>
           </div>
         </div>
       </div>
@@ -2234,18 +3121,18 @@ const AdsManagementPage = () => {
 
               {/* Performance Chart */}
               <div className="bg-[#F4F6FA] p-4 rounded-[10px] border border-[#E8EFF9]">
-                <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-4 flex items-center gap-2"><Activity size={14}/> Performa 7 Hari Terakhir</h4>
+                <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-4 flex items-center gap-2"><Activity size={14} /> Performa 7 Hari Terakhir</h4>
                 <div className="h-[180px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={performanceData}>
                       <defs>
                         <linearGradient id="colorImp" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#003087" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#003087" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#003087" stopOpacity={0.1} />
+                          <stop offset="95%" stopColor="#003087" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8EFF9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
                       <YAxis hide />
                       <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '10px' }} />
                       <Area type="monotone" dataKey="imp" stroke="#003087" strokeWidth={2} fillOpacity={1} fill="url(#colorImp)" />
@@ -2272,7 +3159,7 @@ const AdsManagementPage = () => {
               {/* Ad Preview */}
               {selectedAd.image && (
                 <div>
-                  <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Eye size={14}/> Preview Kreatif</h4>
+                  <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><Eye size={14} /> Preview Kreatif</h4>
                   <div className="border border-[#E8EFF9] rounded-[8px] overflow-hidden bg-gray-50">
                     <img src={selectedAd.image} alt="Ad Preview" className="w-full h-auto object-contain" referrerPolicy="no-referrer" />
                   </div>
@@ -2302,13 +3189,13 @@ const AdsManagementPage = () => {
               <div className="p-3 bg-white border border-[#E8EFF9] rounded-[8px]">
                 <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Target URL</div>
                 <div className="text-[12px] font-bold text-[#003087] break-all flex items-center gap-1">
-                  <LinkIcon size={12}/> {selectedAd.targetUrl}
+                  <LinkIcon size={12} /> {selectedAd.targetUrl}
                 </div>
               </div>
 
               {/* History */}
               <div>
-                <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><History size={14}/> Riwayat Perubahan</h4>
+                <h4 className="text-[12px] font-bold text-[#0D1B3E] mb-3 flex items-center gap-2"><History size={14} /> Riwayat Perubahan</h4>
                 <div className="space-y-3">
                   {selectedAd.history.map((h: any, i: number) => (
                     <div key={i} className="flex gap-3">
@@ -2470,9 +3357,8 @@ const SettingsPage = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-4 text-[12px] font-bold flex items-center gap-2 transition-all relative shrink-0 ${
-              activeTab === tab.id ? 'text-[#003087]' : 'text-[#8899AA] hover:text-[#0D1B3E]'
-            }`}
+            className={`px-6 py-4 text-[12px] font-bold flex items-center gap-2 transition-all relative shrink-0 ${activeTab === tab.id ? 'text-[#003087]' : 'text-[#8899AA] hover:text-[#0D1B3E]'
+              }`}
           >
             {tab.icon}
             {tab.label}
@@ -2892,11 +3778,10 @@ const SettingsPage = () => {
                     <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                       <td className="p-4 text-[#8899AA] font-mono text-[11px]">{log.timestamp}</td>
                       <td className="p-4">
-                        <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase ${
-                          log.type === 'Error' ? 'bg-[#FFEBEB] text-[#C41A1A]' :
+                        <span className={`px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase ${log.type === 'Error' ? 'bg-[#FFEBEB] text-[#C41A1A]' :
                           log.type === 'Warning' ? 'bg-[#FFF6E0] text-[#C47A00]' :
-                          'bg-[#EEF0FF] text-[#4A5FD4]'
-                        }`}>
+                            'bg-[#EEF0FF] text-[#4A5FD4]'
+                          }`}>
                           {log.type}
                         </span>
                       </td>
@@ -2917,8 +3802,8 @@ const SettingsPage = () => {
             <div className="flex items-center justify-between pt-4">
               <p className="text-[11px] text-[#8899AA]">Menampilkan 7 dari 1,240 log aktivitas</p>
               <div className="flex gap-2">
-                <button className="p-2 border border-[#E8EFF9] rounded-[6px] hover:bg-gray-50 disabled:opacity-50" disabled><ChevronLeft size={14}/></button>
-                <button className="p-2 border border-[#E8EFF9] rounded-[6px] hover:bg-gray-50"><ChevronRight size={14}/></button>
+                <button className="p-2 border border-[#E8EFF9] rounded-[6px] hover:bg-gray-50 disabled:opacity-50" disabled><ChevronLeft size={14} /></button>
+                <button className="p-2 border border-[#E8EFF9] rounded-[6px] hover:bg-gray-50"><ChevronRight size={14} /></button>
               </div>
             </div>
           </div>
@@ -3014,11 +3899,10 @@ const AnalyticsPage = () => {
             <button
               key={range}
               onClick={() => setDateRange(range)}
-              className={`px-4 py-1.5 rounded-[8px] text-[11px] font-bold transition-all ${
-                dateRange === range 
-                  ? 'bg-[#003087] text-white shadow-md' 
-                  : 'text-[#8899AA] hover:bg-gray-50'
-              }`}
+              className={`px-4 py-1.5 rounded-[8px] text-[11px] font-bold transition-all ${dateRange === range
+                ? 'bg-[#003087] text-white shadow-md'
+                : 'text-[#8899AA] hover:bg-gray-50'
+                }`}
             >
               {range}
             </button>
@@ -3028,10 +3912,10 @@ const AnalyticsPage = () => {
 
       {/* Main Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Users size={18}/>} label="Total Pengunjung" value="142,840" trend={12} color="#003087" />
-        <StatCard icon={<BookOpen size={18}/>} label="Artikel Dibaca" value="582,400" trend={8} color="#4A148C" />
-        <StatCard icon={<MousePointer2 size={18}/>} label="Pengguna Aktif" value="12,450" trend={15} color="#10B981" />
-        <StatCard icon={<Timer size={18}/>} label="Rerata Durasi Baca" value="5m 42s" trend={2} color="#F59E0B" />
+        <StatCard icon={<Users size={18} />} label="Total Pengunjung" value="142,840" trend={12} color="#003087" />
+        <StatCard icon={<BookOpen size={18} />} label="Artikel Dibaca" value="582,400" trend={8} color="#4A148C" />
+        <StatCard icon={<MousePointer2 size={18} />} label="Pengguna Aktif" value="12,450" trend={15} color="#10B981" />
+        <StatCard icon={<Timer size={18} />} label="Rerata Durasi Baca" value="5m 42s" trend={2} color="#F59E0B" />
       </div>
 
       {/* Visitor Trend Chart */}
@@ -3048,18 +3932,18 @@ const AnalyticsPage = () => {
             <AreaChart data={visitorData}>
               <defs>
                 <linearGradient id="colorVisitors" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#003087" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#003087" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#003087" stopOpacity={0.1} />
+                  <stop offset="95%" stopColor="#003087" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.1} />
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8EFF9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
-              <Tooltip 
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
+              <Tooltip
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
               />
               <Area type="monotone" dataKey="visitors" stroke="#003087" strokeWidth={3} fillOpacity={1} fill="url(#colorVisitors)" />
@@ -3078,9 +3962,9 @@ const AnalyticsPage = () => {
               <BarChart data={topArticlesData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E8EFF9" />
                 <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#0D1B3E', fontWeight: 'bold'}} width={120} />
-                <Tooltip 
-                  cursor={{fill: '#F4F6FA'}}
+                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#0D1B3E', fontWeight: 'bold' }} width={120} />
+                <Tooltip
+                  cursor={{ fill: '#F4F6FA' }}
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
                 />
                 <Bar dataKey="views" fill="#003087" radius={[0, 4, 4, 0]} barSize={20} />
@@ -3108,7 +3992,7 @@ const AnalyticsPage = () => {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
                 />
               </PieChart>
@@ -3131,7 +4015,7 @@ const AnalyticsPage = () => {
       {/* AI Legal Usage Section */}
       <div className="bg-white p-6 rounded-[10px] border border-[#E8EFF9] shadow-sm">
         <div className="flex items-center gap-2 mb-6">
-          <div className="p-2 bg-[#EEF0FF] text-[#003087] rounded-lg"><Zap size={18}/></div>
+          <div className="p-2 bg-[#EEF0FF] text-[#003087] rounded-lg"><Zap size={18} /></div>
           <div>
             <h3 className="text-[14px] font-bold text-[#0D1B3E]">Penggunaan AI Legal Assistant</h3>
             <p className="text-[11px] text-[#8899AA]">Statistik interaksi chatbot hukum</p>
@@ -3143,9 +4027,9 @@ const AnalyticsPage = () => {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={aiUsageData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8EFF9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
-                <Tooltip 
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
+                <Tooltip
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
                 />
                 <Line type="monotone" dataKey="queries" stroke="#4A148C" strokeWidth={3} dot={{ r: 4, fill: '#4A148C' }} />
@@ -3157,9 +4041,9 @@ const AnalyticsPage = () => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={aiTopicsData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8EFF9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#8899AA'}} />
-                <Tooltip 
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#8899AA' }} />
+                <Tooltip
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
                 />
                 <Bar dataKey="value" fill="#4A148C" radius={[4, 4, 0, 0]} barSize={40} />
@@ -3239,14 +4123,14 @@ const AnalyticsPage = () => {
       <div className="bg-white p-6 rounded-[10px] border border-[#E8EFF9] shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-[#E8F5EE] text-[#10B981] rounded-lg"><Globe2 size={18}/></div>
+            <div className="p-2 bg-[#E8F5EE] text-[#10B981] rounded-lg"><Globe2 size={18} /></div>
             <div>
               <h3 className="text-[14px] font-bold text-[#0D1B3E]">Sebaran Pembaca</h3>
               <p className="text-[11px] text-[#8899AA]">Distribusi geografis pengguna di Indonesia</p>
             </div>
           </div>
           <button className="text-[11px] font-bold text-[#003087] flex items-center gap-1.5 hover:underline">
-            <Map size={14}/> Lihat Peta Detail
+            <Map size={14} /> Lihat Peta Detail
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -3291,26 +4175,29 @@ const PlaceholderPage = ({ title }: { title: string }) => (
 export default function AdminPanel() {
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 size={14}/> },
-    { id: 'cms-berita', label: 'CMS Berita', icon: <FileText size={14}/> },
-    { id: 'investigasi', label: 'Investigasi', icon: <Search size={14}/> },
-    { id: 'knowledge-rag', label: 'Knowledge RAG', icon: <BookOpen size={14}/> },
-    { id: 'ai-legal-config', label: 'AI Legal Config', icon: <Bot size={14}/> },
-    { id: 'dokumen-hukum', label: 'Dokumen Hukum', icon: <FileCheck size={14}/> },
-    { id: 'manajemen-user', label: 'Manajemen User', icon: <Users size={14}/> },
-    { id: 'subscription', label: 'Subscription', icon: <CreditCard size={14}/> },
-    { id: 'pengaduan', label: 'Pengaduan', icon: <Megaphone size={14}/>, badge: '47' },
-    { id: 'verif-jurnalis', label: 'Verif. Jurnalis', icon: <IdCard size={14}/>, badge: '3', badgeColor: '#F59E0B' },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={14}/> },
-    { id: 'manajemen-iklan', label: 'Manajemen Iklan', icon: <Megaphone size={14}/> },
-    { id: 'pengaturan', label: 'Pengaturan Sistem', icon: <Settings size={14}/> },
+    { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 size={14} /> },
+    { id: 'cms-berita', label: 'CMS Berita', icon: <FileText size={14} /> },
+    { id: 'notifikasi', label: 'Broadcast Notifikasi', icon: <Megaphone size={14} /> },
+    { id: 'investigasi', label: 'Investigasi', icon: <Search size={14} /> },
+    { id: 'knowledge-rag', label: 'Knowledge RAG', icon: <BookOpen size={14} /> },
+    { id: 'ai-legal-config', label: 'AI Legal Config', icon: <Bot size={14} /> },
+    { id: 'dokumen-hukum', label: 'Dokumen Hukum', icon: <FileCheck size={14} /> },
+    { id: 'manajemen-user', label: 'Manajemen User', icon: <Users size={14} /> },
+    { id: 'subscription', label: 'Subscription', icon: <CreditCard size={14} /> },
+    { id: 'pengaduan', label: 'Pengaduan', icon: <Megaphone size={14} />, badge: '47' },
+    { id: 'verif-jurnalis', label: 'Verif. Jurnalis', icon: <IdCard size={14} />, badge: '3', badgeColor: '#F59E0B' },
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={14} /> },
+    { id: 'manajemen-iklan', label: 'Manajemen Iklan', icon: <Megaphone size={14} /> },
+    { id: 'pengaturan', label: 'Pengaturan Sistem', icon: <Settings size={14} /> },
   ];
 
   const pages: Record<string, React.ReactNode> = {
     'dashboard': <DashboardPage />,
     'cms-berita': <CMSBeritaPage />,
+    'notifikasi': <ManajemenNotifikasiPage />,
     'investigasi': <InvestigasiPage />,
     'knowledge-rag': <KnowledgeRAGPage />,
     'ai-legal-config': <AILegalConfigPage />,
@@ -3327,88 +4214,101 @@ export default function AdminPanel() {
   const activeTitle = menuItems.find(m => m.id === activePage)?.label || 'Admin Panel';
 
   return (
-    <div className="flex h-screen bg-[#F4F6FA] font-sans text-[#0D1B3E] overflow-hidden">
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}></div>
-      )}
+    <>
+      {isLoggingOut && <FullScreenLoader message="Membungkus sesi Admin Anda..." />}
+      <div className="flex h-screen bg-[#F4F6FA] font-sans text-[#0D1B3E] overflow-hidden">
+        {/* Mobile Sidebar Overlay */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}></div>
+        )}
 
-      {/* Sidebar */}
-      <aside className={`
+        {/* Sidebar */}
+        <aside className={`
         fixed inset-y-0 left-0 z-50 w-[220px] bg-[#0D1B3E] text-white flex flex-col transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="h-14 bg-[#001A5E] flex items-center px-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-[#E31B23] rounded flex items-center justify-center font-bold text-[10px]">JM</div>
-            <div>
-              <div className="font-bold text-[13px] leading-tight">Admin Panel</div>
-              <div className="text-[9px] text-white/40">v1.0 · Admin Mode</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
-          {menuItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => { setActivePage(item.id); setSidebarOpen(false); }}
-              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-[6px] transition-colors ${
-                activePage === item.id 
-                  ? 'bg-white/12 text-white font-semibold' 
-                  : 'text-white/75 hover:bg-white/5'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className={activePage === item.id ? 'text-white' : 'text-white/75'}>{item.icon}</span>
-                <span className="text-[11px]">{item.label}</span>
+          <div className="h-14 bg-[#001A5E] flex items-center px-4 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-[#E31B23] rounded flex items-center justify-center font-bold text-[10px]">JM</div>
+              <div>
+                <div className="font-bold text-[13px] leading-tight">Admin Panel</div>
+                <div className="text-[9px] text-white/40">v1.0 · Admin Mode</div>
               </div>
-              {item.badge && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: item.badgeColor || '#E31B23', color: '#fff' }}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          ))}
-
-          <div className="pt-4 mt-4 border-t border-white/10">
-            <Link to="/workspace" className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-white/75 hover:bg-white/5 transition-colors">
-              <ChevronLeft size={14}/>
-              <span className="text-[11px]">Kembali ke Workspace</span>
-            </Link>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-[220px]">
-        {/* Topbar */}
-        <header className="h-14 bg-white border-b border-[#E8EFF9] flex items-center justify-between px-4 lg:px-6 shrink-0 z-30">
-          <div className="flex items-center gap-3">
-            <button className="lg:hidden text-[#8899AA]" onClick={() => setSidebarOpen(true)}>
-              <Menu size={20} />
-            </button>
-            <h1 className="text-[14px] font-bold text-[#0D1B3E]">{activeTitle}</h1>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <button className="relative text-[#8899AA] hover:text-[#0D1B3E]">
-              <Bell size={18} />
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#E31B23] text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white">5</span>
-            </button>
-            <div className="flex items-center gap-2 pl-4 border-l border-[#E8EFF9]">
-              <div className="w-7 h-7 rounded-full bg-[#0D1B3E] text-white flex items-center justify-center text-[10px] font-bold">AD</div>
-              <div className="hidden md:block text-[11px] font-medium">Admin Utama</div>
-              <button className="text-[#8899AA] hover:text-[#E31B23] ml-2"><LogOut size={14}/></button>
             </div>
           </div>
-        </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 lg:p-6">
-          {pages[activePage]}
-        </main>
+          <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
+            {menuItems.map(item => (
+              <button
+                key={item.id}
+                onClick={() => { setActivePage(item.id); setSidebarOpen(false); }}
+                className={`w-full flex items-center justify-between px-2.5 py-2 rounded-[6px] transition-colors ${activePage === item.id
+                  ? 'bg-white/12 text-white font-semibold'
+                  : 'text-white/75 hover:bg-white/5'
+                  }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className={activePage === item.id ? 'text-white' : 'text-white/75'}>{item.icon}</span>
+                  <span className="text-[11px]">{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: item.badgeColor || '#E31B23', color: '#fff' }}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            <div className="pt-4 mt-4 border-t border-white/10">
+              <Link to="/workspace" className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-white/75 hover:bg-white/5 transition-colors">
+                <ChevronLeft size={14} />
+                <span className="text-[11px]">Kembali ke Workspace</span>
+              </Link>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col min-w-0 lg:ml-[220px]">
+          {/* Topbar */}
+          <header className="h-14 bg-white border-b border-[#E8EFF9] flex items-center justify-between px-4 lg:px-6 shrink-0 z-30">
+            <div className="flex items-center gap-3">
+              <button className="lg:hidden text-[#8899AA]" onClick={() => setSidebarOpen(true)}>
+                <Menu size={20} />
+              </button>
+              <h1 className="text-[14px] font-bold text-[#0D1B3E]">{activeTitle}</h1>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <button className="relative text-[#8899AA] hover:text-[#0D1B3E]">
+                <Bell size={18} />
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-[#E31B23] text-white text-[8px] font-bold flex items-center justify-center rounded-full border border-white">5</span>
+              </button>
+              <div className="flex items-center gap-2 pl-4 border-l border-[#E8EFF9]">
+                <div className="w-7 h-7 rounded-full bg-[#0D1B3E] text-white flex items-center justify-center text-[10px] font-bold">AD</div>
+                <div className="hidden md:block text-[11px] font-medium">Admin Utama</div>
+                <button
+                  onClick={async () => {
+                    setIsLoggingOut(true);
+                    // Delay for 5 seconds as requested by the user
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    await supabase.auth.signOut();
+                    window.location.href = '/';
+                  }}
+                  className="text-[#8899AA] hover:text-[#E31B23] ml-2"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Page Content */}
+          <main className="flex-1 overflow-auto p-4 lg:p-6">
+            {pages[activePage]}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
