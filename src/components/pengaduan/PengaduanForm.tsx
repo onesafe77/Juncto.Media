@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Lock, UploadCloud, X, AlertCircle, Megaphone } from 'lucide-react';
+import { Lock, UploadCloud, X, AlertCircle, Megaphone, Loader2 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface PengaduanFormProps {
   onSuccess: (reportId: string) => void;
@@ -19,12 +20,13 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
   });
   const [attachments, setAttachments] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const val = type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
     setFormData((prev) => ({ ...prev, [name]: val }));
-    
+
     // Clear error when typing
     if (errors[name]) {
       setErrors((prev) => {
@@ -48,31 +50,69 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-    
+
     if (!formData.category) newErrors.category = 'Kategori wajib dipilih';
     if (!formData.title) newErrors.title = 'Judul laporan wajib diisi';
     else if (formData.title.length < 10) newErrors.title = 'Judul minimal 10 karakter';
-    
+
     if (!formData.terlapor) newErrors.terlapor = 'Instansi/Pihak terlapor wajib diisi';
     else if (formData.terlapor.length < 3) newErrors.terlapor = 'Minimal 3 karakter';
-    
+
     if (!formData.content) newErrors.content = 'Isi laporan wajib diisi';
     else if (formData.content.length < 50) newErrors.content = 'Isi laporan minimal 50 karakter';
-    
+
     if (!formData.agreed) newErrors.agreed = 'Anda harus menyetujui pernyataan ini';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (validateForm()) {
-      // Generate random report number
-      const year = new Date().getFullYear();
-      const randomNum = Math.floor(10000 + Math.random() * 90000);
-      const reportId = `JM-${year}-${randomNum}`;
-      onSuccess(reportId);
+      setIsSubmitting(true);
+      try {
+        // Generate random report number
+        const year = new Date().getFullYear();
+        const randomNum = Math.floor(10000 + Math.random() * 90000);
+        const reportId = `JM-${year}-${randomNum}`;
+
+        // Handle file uploads
+        const uploadedFiles = [];
+        if (attachments.length > 0) {
+          for (const file of attachments) {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${reportId}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+            const filePath = `reports/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage.from('pengaduan-attachments').upload(filePath, file);
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage.from('pengaduan-attachments').getPublicUrl(filePath);
+              uploadedFiles.push({ name: file.name, url: publicUrl, size: file.size });
+            }
+          }
+        }
+
+        const { error } = await supabase.from('reports').insert({
+          id: reportId,
+          title: formData.title,
+          category: formData.category,
+          description: formData.content,
+          reporter_name: isAnonymous ? 'Anonim' : (formData.name || 'Anonim'),
+          reporter_email: isAnonymous ? '' : formData.email,
+          reporter_phone: isAnonymous ? '' : formData.phone,
+          terlapor: formData.terlapor,
+          attachments: uploadedFiles,
+          status: 'Baru'
+        });
+
+        if (error) throw error;
+        onSuccess(reportId);
+      } catch (err: any) {
+        alert('Gagal mengirim laporan: ' + err.message);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -92,7 +132,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
         {/* Field 1: Kategori */}
         <div>
           <label className="block text-sm font-bold text-[#0D1B3E] mb-2">Kategori Laporan <span className="text-[#E31B23]">*</span></label>
-          <select 
+          <select
             name="category"
             value={formData.category}
             onChange={handleInputChange}
@@ -114,7 +154,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
             <label className="block text-sm font-bold text-[#0D1B3E]">Judul Laporan <span className="text-[#E31B23]">*</span></label>
             <span className="text-xs text-[#8899AA]">{formData.title.length}/150</span>
           </div>
-          <input 
+          <input
             type="text"
             name="title"
             value={formData.title}
@@ -129,7 +169,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
         {/* Field 3: Terlapor */}
         <div>
           <label className="block text-sm font-bold text-[#0D1B3E] mb-2">Instansi / Pihak Terlapor <span className="text-[#E31B23]">*</span></label>
-          <input 
+          <input
             type="text"
             name="terlapor"
             value={formData.terlapor}
@@ -146,7 +186,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
             <label className="block text-sm font-bold text-[#0D1B3E]">Isi Laporan <span className="text-[#E31B23]">*</span></label>
             <span className="text-xs text-[#8899AA]">{formData.content.length}/3000</span>
           </div>
-          <textarea 
+          <textarea
             name="content"
             value={formData.content}
             onChange={handleInputChange}
@@ -161,9 +201,9 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
         <div>
           <label className="block text-sm font-bold text-[#0D1B3E] mb-2">Lampiran Bukti (Opsional)</label>
           <div className="border-2 border-dashed border-[#C5D3E8] rounded-xl p-6 flex flex-col items-center justify-center text-center hover:bg-[#F4F6FA] transition-colors cursor-pointer relative">
-            <input 
-              type="file" 
-              multiple 
+            <input
+              type="file"
+              multiple
               onChange={handleFileChange}
               accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -174,7 +214,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
             <p className="text-sm font-bold text-[#0D1B3E] mb-1">Seret file ke sini atau klik untuk pilih</p>
             <p className="text-xs text-[#8899AA]">PDF, JPG, PNG, DOC, XLS &middot; Maks 10MB per file</p>
           </div>
-          
+
           {attachments.length > 0 && (
             <div className="mt-4 space-y-2">
               {attachments.map((file, idx) => (
@@ -188,8 +228,8 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
                       <p className="text-[10px] text-[#8899AA]">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                     </div>
                   </div>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => removeFile(idx)}
                     className="p-1.5 text-[#8899AA] hover:text-[#E31B23] hover:bg-white rounded-md transition-colors shrink-0"
                   >
@@ -209,16 +249,16 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
               <span className="text-sm font-bold text-[#0D1B3E]">Laporkan Secara Anonim</span>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
-              <input 
-                type="checkbox" 
-                className="sr-only peer" 
+              <input
+                type="checkbox"
+                className="sr-only peer"
                 checked={isAnonymous}
                 onChange={() => setIsAnonymous(!isAnonymous)}
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#003087]"></div>
             </label>
           </div>
-          
+
           <div className="p-4">
             {isAnonymous ? (
               <div className="bg-[#EEF0FF] border border-[#C5CFFF] text-[#4A5FD4] p-3.5 rounded-lg text-sm flex items-start gap-2.5">
@@ -231,11 +271,11 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
                   <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                   <p>Informasi Anda hanya digunakan redaksi untuk verifikasi dan tidak dipublikasikan.</p>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-[#0D1B3E] mb-1.5">Nama Lengkap (Opsional)</label>
-                    <input 
+                    <input
                       type="text"
                       name="name"
                       value={formData.name}
@@ -245,7 +285,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-[#0D1B3E] mb-1.5">Email (Opsional)</label>
-                    <input 
+                    <input
                       type="email"
                       name="email"
                       value={formData.email}
@@ -255,7 +295,7 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-[#0D1B3E] mb-1.5">No. HP / WhatsApp (Opsional)</label>
-                    <input 
+                    <input
                       type="tel"
                       name="phone"
                       value={formData.phone}
@@ -273,15 +313,15 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
         <div>
           <label className="flex items-start gap-3 cursor-pointer group">
             <div className="relative flex items-center justify-center mt-0.5 shrink-0">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 name="agreed"
                 checked={formData.agreed}
                 onChange={handleInputChange}
                 className="peer appearance-none w-5 h-5 border-2 border-[#C5D3E8] rounded bg-white checked:bg-[#003087] checked:border-[#003087] focus:outline-none focus:ring-2 focus:ring-[#003087]/20 transition-colors"
               />
               <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
             <span className="text-sm text-[#4A5568] group-hover:text-[#0D1B3E] transition-colors">
@@ -292,17 +332,16 @@ export default function PengaduanForm({ onSuccess }: PengaduanFormProps) {
         </div>
 
         {/* Submit */}
-        <button 
+        <button
           type="submit"
-          disabled={!isFormValid}
-          className={`w-full h-12 rounded-lg font-bold text-[15px] flex items-center justify-center gap-2 transition-all ${
-            isFormValid 
-              ? 'bg-[#003087] text-white hover:bg-[#001A5E] shadow-lg shadow-[#003087]/20' 
+          disabled={!isFormValid || isSubmitting}
+          className={`w-full h-12 rounded-lg font-bold text-[15px] flex items-center justify-center gap-2 transition-all ${isFormValid && !isSubmitting
+              ? 'bg-[#003087] text-white hover:bg-[#001A5E] shadow-lg shadow-[#003087]/20'
               : 'bg-[#C5D3E8] text-white cursor-not-allowed'
-          }`}
+            }`}
         >
-          <Megaphone className="w-5 h-5" />
-          Kirim Laporan
+          {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Megaphone className="w-5 h-5" />}
+          {isSubmitting ? 'Mengirim Laporan...' : 'Kirim Laporan'}
         </button>
       </form>
     </div>

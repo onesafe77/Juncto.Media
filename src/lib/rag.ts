@@ -30,6 +30,88 @@ export function chunkText(text: string, chunkSize: number = 1000, overlap: numbe
 }
 
 /**
+ * Cleans scraped markdown content by removing navigation, ads, login prompts, etc.
+ */
+export function cleanScrapedContent(markdown: string): string {
+    let cleaned = markdown;
+
+    // Remove entire blocks that are clearly navigation/promo (multi-line patterns)
+    cleaned = cleaned.replace(/Amar Putusan:.*?Untuk Akses Fitur Ini/gis, 'Amar Putusan: [Konten memerlukan akses premium]');
+    cleaned = cleaned.replace(/\[Login\].*?Untuk Akses Fitur Ini/gis, '');
+    cleaned = cleaned.replace(/\[Berlangganan\].*?Untuk Akses Fitur Ini/gis, '');
+    cleaned = cleaned.replace(/Untuk Akses Fitur Ini/gi, '');
+    cleaned = cleaned.replace(/returnUrl=.*?(?=\n|$)/gm, '');
+
+    // Remove common noise patterns (line-by-line)
+    const noisePatterns = [
+        // Login/Auth
+        /^.*\[Login\]\(https?:\/\/.*\).*$/gim,
+        /^.*\[Berlangganan\]\(https?:\/\/.*\).*$/gim,
+        /^.*\[Daftar\]\(https?:\/\/.*\).*$/gim,
+        /^.*\[Masuk\]\(https?:\/\/.*\).*$/gim,
+        /^.*\[Sign[\s-]?[Ii]n\].*$/gim,
+        /^.*\[Sign[\s-]?[Uu]p\].*$/gim,
+        /^.*\[Register\].*$/gim,
+        // HukumOnline-specific
+        /^.*hukumonline\.com\/user\/login.*$/gim,
+        /^.*pro\.hukumonline\.com\/paket.*$/gim,
+        /^.*utm_source=website.*$/gim,
+        /^.*utm_medium=navbar.*$/gim,
+        /^.*utm_campaign=.*$/gim,
+        /^.*"Login"\) Atau \["Berlangganan"\].*$/gim,
+        /^.*Untuk Akses Fitur Ini.*$/gim,
+        /^.*returnUrl=.*$/gim,
+        // Navigation/Footer
+        /^\s*\[?(Home|Beranda|Menu|Navigasi|Navigation|Breadcrumb)\]?.*$/gim,
+        /^\s*Buat Akun.*$/gim,
+        /^\s*Masuk ke akun anda.*$/gim,
+        /^\s*Copyright ©.*$/gim,
+        /^\s*All Rights Reserved.*$/gim,
+        /^\s*Hubungi Kami.*$/gim,
+        /^\s*KONTAK KAMI.*$/gim,
+        /^\s*Follow us.*$/gim,
+        /^\s*Ikuti kami.*$/gim,
+        /^\s*Share this.*$/gim,
+        /^\s*Bagikan.*$/gim,
+        /^\s*Tags?:.*$/gim,
+        /^\s*Kata Kunci:.*$/gim,
+        /^\s*Related Articles.*$/gim,
+        /^\s*Artikel Terkait.*$/gim,
+        /^\s*Baca juga.*$/gim,
+        /^\s*Download App.*$/gim,
+        /^\s*Newsletter.*$/gim,
+        /^\s*Sosial Media.*$/gim,
+        /^\s*TAUTAN.*$/gim,
+        /^\s*JURNAL HUKUM.*$/gim,
+        /^\s*\[.*\]\(javascript:void.*\)$/gim,
+    ];
+
+    for (const pattern of noisePatterns) {
+        cleaned = cleaned.replace(pattern, '');
+    }
+
+    // Remove lines that are just markdown links (navigation)
+    cleaned = cleaned.split('\n').filter(line => {
+        const trimmed = line.trim();
+        // Remove lines that are ONLY a markdown link with no real text
+        if (/^\[.*\]\(https?:\/\/.*\)\s*$/.test(trimmed) && trimmed.length < 200) {
+            // Keep if it looks like a real reference (has descriptive text)
+            const linkText = trimmed.match(/^\[(.*)\]/);
+            if (linkText && linkText[1].length > 30) return true; // Descriptive links kept
+            return false; // Short navigation links removed
+        }
+        // Remove lines with login/berlangganan URLs
+        if (/\/(login|signup|register|berlangganan|paket)/.test(trimmed) && !/^(PUTUSAN|Nomor|Pasal|ayat|Undang|Peraturan)/i.test(trimmed)) return false;
+        return true;
+    }).join('\n');
+
+    // Remove excessive blank lines
+    cleaned = cleaned.replace(/\n{4,}/g, '\n\n');
+
+    return cleaned.trim();
+}
+
+/**
  * Generates embeddings using OpenRouter (OpenAI model)
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -273,7 +355,7 @@ export async function scrapeAndIndexURL(
             },
             body: JSON.stringify({
                 url: url,
-                formats: ['markdown'],
+                formats: ['markdown', 'links'],
             }),
         });
 
@@ -287,26 +369,80 @@ export async function scrapeAndIndexURL(
             throw new Error('Firecrawl gagal mengambil konten dari URL');
         }
 
-        const content = data.data.markdown;
+        let content = data.data.markdown;
         const title = data.data.metadata?.title || url;
+        const links = (data.data?.links || []) as string[];
+
+        // 2. Auto-detect PDF links and extract PDF content
+        const pdfLinks = links.filter((l: string) =>
+            l.match(/\.(pdf)($|\?)/i) || l.includes('/file/download') || l.includes('/download/')
+        );
+
+        // Also check markdown content for PDF links
+        const markdownPdfMatches = content.match(/\(https?:\/\/[^)]*(?:\.pdf|file\/download|\/download\/)[^)]*\)/gi) || [];
+        for (const match of markdownPdfMatches) {
+            const pdfUrl = match.slice(1, -1); // Remove parentheses
+            if (!pdfLinks.includes(pdfUrl)) pdfLinks.push(pdfUrl);
+        }
+
+        let pdfContent = '';
+        if (pdfLinks.length > 0) {
+            onProgress?.(`Mengambil isi PDF (${pdfLinks.length} file)...`);
+
+            for (const pdfUrl of pdfLinks.slice(0, 3)) { // Max 3 PDFs per page
+                try {
+                    const pdfResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+                        },
+                        body: JSON.stringify({
+                            url: pdfUrl,
+                            formats: ['markdown'],
+                        }),
+                    });
+
+                    if (pdfResponse.ok) {
+                        const pdfData = await pdfResponse.json();
+                        if (pdfData.success && pdfData.data?.markdown) {
+                            pdfContent += '\n\n--- ISI DOKUMEN PDF ---\n\n' + pdfData.data.markdown;
+                        }
+                    }
+
+                    // Rate limit between PDF fetches
+                    await new Promise(r => setTimeout(r, 1000));
+                } catch (pdfErr) {
+                    console.warn(`Failed to extract PDF from ${pdfUrl}:`, pdfErr);
+                }
+            }
+        }
+
+        // Combine: metadata page + PDF content
+        const fullContent = pdfContent
+            ? content + '\n\n' + pdfContent
+            : content;
 
         onProgress?.('Menyimpan dokumen...');
 
-        // 2. Create rag_document entry
+        // 3. Create rag_document entry
         const { data: doc, error: docErr } = await supabase.from('rag_documents').insert({
             name: `[Web] ${title}`,
             type: 'URL',
-            size: `${(content.length / 1024).toFixed(1)} KB`,
+            size: `${(fullContent.length / 1024).toFixed(1)} KB`,
             status: 'Processing',
-            metadata: { source: 'firecrawl', url: url }
+            metadata: { source: 'firecrawl', url: url, hasPdf: pdfContent.length > 0 }
         }).select().single();
 
         if (docErr || !doc) throw docErr;
 
         onProgress?.('Memproses dan mengindeks...');
 
-        // 3. Process into RAG (chunk + embed)
-        const result = await processDocument(doc.id, content);
+        // 4. Clean the content before processing
+        const cleanedContent = cleanScrapedContent(fullContent);
+
+        // 5. Process into RAG (chunk + embed)
+        const result = await processDocument(doc.id, cleanedContent);
 
         return { success: true, title, chunks: result.chunks };
     } catch (err: any) {
@@ -430,3 +566,248 @@ export async function crawlPeraturanUU(
         errors,
     };
 }
+
+/**
+ * Auto-crawl: Discover regulations from jdihn.go.id and batch-scrape them
+ * Uses Firecrawl /map endpoint for URL discovery since JDIHN uses JS rendering
+ */
+export async function crawlJDIHN(
+    maxResults: number = 10,
+    onProgress?: (status: string, current: number, total: number) => void
+): Promise<{ discovered: number; indexed: number; skipped: number; errors: number }> {
+    if (!FIRECRAWL_API_KEY) {
+        throw new Error('Firecrawl API Key belum dikonfigurasi');
+    }
+
+    onProgress?.('Menemukan halaman di JDIHN...', 0, 0);
+
+    let allDetailLinks: string[] = [];
+
+    // Strategy 1: Use Firecrawl /map endpoint to discover URLs
+    try {
+        const mapResponse = await fetch('https://api.firecrawl.dev/v1/map', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+            },
+            body: JSON.stringify({
+                url: 'https://jdihn.go.id',
+                search: 'undang-undang peraturan',
+                limit: 50,
+            }),
+        });
+
+        if (mapResponse.ok) {
+            const mapData = await mapResponse.json();
+            if (mapData.success && mapData.links) {
+                allDetailLinks = (mapData.links as string[]).filter((l: string) =>
+                    l.includes('jdihn.go.id') &&
+                    !l.endsWith('jdihn.go.id/') &&
+                    !l.endsWith('jdihn.go.id') &&
+                    !l.includes('#') && !l.includes('javascript')
+                );
+            }
+        }
+    } catch (e) {
+        console.warn('Map endpoint failed:', e);
+    }
+
+    // Strategy 2: Fallback - scrape the homepage for links
+    if (allDetailLinks.length === 0) {
+        onProgress?.('Map gagal, mencoba scrape homepage...', 0, 0);
+        const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+            },
+            body: JSON.stringify({ url: 'https://jdihn.go.id', formats: ['links', 'markdown'] }),
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                const links = (data.data?.links || []) as string[];
+                allDetailLinks = links.filter((l: string) =>
+                    l.includes('jdihn.go.id') &&
+                    !l.endsWith('jdihn.go.id/') &&
+                    !l.endsWith('jdihn.go.id') &&
+                    !l.includes('#') && !l.includes('javascript') && !l.includes('mailto')
+                );
+            }
+        }
+    }
+
+    // Deduplicate and limit
+    allDetailLinks = [...new Set(allDetailLinks)].slice(0, maxResults);
+
+    if (allDetailLinks.length === 0) {
+        throw new Error('Tidak ditemukan link detail peraturan di JDIHN. Situs ini menggunakan JavaScript rendering yang membatasi scraping.');
+    }
+
+    // Check existing
+    const { data: existingDocs } = await supabase
+        .from('rag_documents')
+        .select('metadata')
+        .eq('type', 'URL');
+
+    const existingUrls = new Set(
+        (existingDocs || [])
+            .map((d: any) => d.metadata?.url)
+            .filter(Boolean)
+    );
+
+    const newLinks = allDetailLinks.filter(url => !existingUrls.has(url));
+    const skipped = allDetailLinks.length - newLinks.length;
+
+    let indexed = 0;
+    let errors = 0;
+
+    // Index
+    for (let i = 0; i < newLinks.length; i++) {
+        const url = newLinks[i];
+        onProgress?.(`Scraping JDIH ${i + 1}/${newLinks.length}...`, i + 1, newLinks.length);
+
+        try {
+            await scrapeAndIndexURL(url);
+            indexed++;
+        } catch (err) {
+            console.error(`Failed to scrape ${url}:`, err);
+            errors++;
+        }
+
+        if (i < newLinks.length - 1) {
+            await new Promise(r => setTimeout(r, 1500));
+        }
+    }
+
+    return {
+        discovered: allDetailLinks.length,
+        indexed,
+        skipped,
+        errors,
+    };
+}
+
+/**
+ * Auto-crawl: Discover putusan (court decisions) from hukumonline.com
+ */
+export async function crawlHukumOnline(
+    maxResults: number = 20,
+    onProgress?: (status: string, current: number, total: number) => void
+): Promise<{ discovered: number; indexed: number; skipped: number; errors: number }> {
+    if (!FIRECRAWL_API_KEY) {
+        throw new Error('Firecrawl API Key belum dikonfigurasi');
+    }
+
+    onProgress?.('Menemukan putusan di HukumOnline...', 0, 0);
+
+    let allDetailLinks: string[] = [];
+
+    // Use Firecrawl /map to discover putusan URLs
+    try {
+        const mapResponse = await fetch('https://api.firecrawl.dev/v1/map', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+            },
+            body: JSON.stringify({
+                url: 'https://www.hukumonline.com/pusatdata/putusan',
+                search: 'putusan pengadilan',
+                limit: 100,
+            }),
+        });
+
+        if (mapResponse.ok) {
+            const mapData = await mapResponse.json();
+            if (mapData.success && mapData.links) {
+                allDetailLinks = (mapData.links as string[]).filter((l: string) =>
+                    l.includes('hukumonline.com/pusatdata/') &&
+                    l.split('/').length > 5 &&
+                    !l.includes('#') && !l.includes('?') &&
+                    !l.endsWith('/pusatdata/') &&
+                    !l.endsWith('/putusan') &&
+                    !l.endsWith('/putusan/')
+                );
+            }
+        }
+    } catch (e) {
+        console.warn('Map endpoint failed for HukumOnline:', e);
+    }
+
+    // Fallback: try scraping the putusan listing page
+    if (allDetailLinks.length === 0) {
+        onProgress?.('Map gagal, mencoba scrape listing...', 0, 0);
+        const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+            },
+            body: JSON.stringify({ url: 'https://www.hukumonline.com/pusatdata/putusan', formats: ['links'] }),
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                const links = (data.data?.links || []) as string[];
+                allDetailLinks = links.filter((l: string) =>
+                    l.includes('hukumonline.com/pusatdata/') &&
+                    l.split('/').length > 5 &&
+                    !l.includes('#') && !l.includes('javascript')
+                );
+            }
+        }
+    }
+
+    allDetailLinks = [...new Set(allDetailLinks)].slice(0, maxResults);
+
+    if (allDetailLinks.length === 0) {
+        throw new Error('Tidak ditemukan link putusan di HukumOnline. Coba gunakan Tambah URL manual.');
+    }
+
+    // Check existing
+    const { data: existingDocs } = await supabase
+        .from('rag_documents')
+        .select('metadata')
+        .eq('type', 'URL');
+
+    const existingUrls = new Set(
+        (existingDocs || [])
+            .map((d: any) => d.metadata?.url)
+            .filter(Boolean)
+    );
+
+    const newLinks = allDetailLinks.filter(url => !existingUrls.has(url));
+    const skipped = allDetailLinks.length - newLinks.length;
+
+    let indexed = 0;
+    let errors = 0;
+
+    for (let i = 0; i < newLinks.length; i++) {
+        const url = newLinks[i];
+        onProgress?.(`Scraping putusan ${i + 1}/${newLinks.length}...`, i + 1, newLinks.length);
+
+        try {
+            await scrapeAndIndexURL(url);
+            indexed++;
+        } catch (err) {
+            console.error(`Failed to scrape ${url}:`, err);
+            errors++;
+        }
+
+        if (i < newLinks.length - 1) {
+            await new Promise(r => setTimeout(r, 1500));
+        }
+    }
+
+    return {
+        discovered: allDetailLinks.length,
+        indexed,
+        skipped,
+        errors,
+    };
+}
+

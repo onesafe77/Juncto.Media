@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PengaduanForm from '../components/pengaduan/PengaduanForm';
 import PengaduanGuide from '../components/pengaduan/PengaduanGuide';
 import PengaduanSecurity from '../components/pengaduan/PengaduanSecurity';
@@ -6,10 +6,26 @@ import PengaduanStatusChecker from '../components/pengaduan/PengaduanStatusCheck
 import PengaduanSuccessState from '../components/pengaduan/PengaduanSuccessState';
 import { ChevronRight, Megaphone, Inbox, CheckCircle, Newspaper } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 export default function PengaduanPage() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [reportNumber, setReportNumber] = useState('');
+  const [stats, setStats] = useState({ total: 0, processed: 0, finished: 0 });
+
+  useEffect(() => {
+    async function fetchStats() {
+      const { data, error } = await supabase.from('reports').select('status');
+      if (!error && data) {
+        setStats({
+          total: data.length,
+          processed: data.filter(r => r.status === 'Diproses' || r.status === 'Selesai').length,
+          finished: data.filter(r => r.status === 'Selesai').length,
+        });
+      }
+    }
+    fetchStats();
+  }, [submitSuccess]);
 
   const handleSuccess = (reportId: string) => {
     setReportNumber(reportId);
@@ -55,23 +71,23 @@ export default function PengaduanPage() {
         <div className="bg-[#F4F6FA] rounded-[10px] p-4 lg:p-5 flex flex-col justify-center">
           <div className="flex items-center gap-2 mb-1">
             <Inbox className="w-4 h-4 text-[#8899AA]" />
-            <span className="text-xl lg:text-2xl font-black text-[#003087]">1.247</span>
+            <span className="text-xl lg:text-2xl font-black text-[#003087]">{stats.total.toLocaleString('id-ID')}</span>
           </div>
           <span className="text-[10px] lg:text-xs text-[#8899AA] font-medium">Total Laporan</span>
         </div>
         <div className="bg-[#F4F6FA] rounded-[10px] p-4 lg:p-5 flex flex-col justify-center">
           <div className="flex items-center gap-2 mb-1">
             <CheckCircle className="w-4 h-4 text-[#8899AA]" />
-            <span className="text-xl lg:text-2xl font-black text-[#003087]">892</span>
+            <span className="text-xl lg:text-2xl font-black text-[#003087]">{stats.processed.toLocaleString('id-ID')}</span>
           </div>
           <span className="text-[10px] lg:text-xs text-[#8899AA] font-medium">Ditindaklanjuti</span>
         </div>
         <div className="bg-[#F4F6FA] rounded-[10px] p-4 lg:p-5 flex flex-col justify-center">
           <div className="flex items-center gap-2 mb-1">
             <Newspaper className="w-4 h-4 text-[#8899AA]" />
-            <span className="text-xl lg:text-2xl font-black text-[#003087]">156</span>
+            <span className="text-xl lg:text-2xl font-black text-[#003087]">{stats.finished.toLocaleString('id-ID')}</span>
           </div>
-          <span className="text-[10px] lg:text-xs text-[#8899AA] font-medium">Jadi Berita</span>
+          <span className="text-[10px] lg:text-xs text-[#8899AA] font-medium">Selesai / Jadi Berita</span>
         </div>
       </div>
 

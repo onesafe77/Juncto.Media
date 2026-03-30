@@ -22,8 +22,10 @@ import {
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { processDocument, searchContext, syncAllCMSData, scrapeAndIndexURL, getDocumentChunks, deleteDocument, crawlPeraturanUU } from '../lib/rag';
+import { processDocument, searchContext, syncAllCMSData, scrapeAndIndexURL, getDocumentChunks, deleteDocument, crawlPeraturanUU, crawlJDIHN, crawlHukumOnline } from '../lib/rag';
 import FullScreenLoader from '../components/FullScreenLoader';
+import InvestigasiPage from '../components/InvestigasiPage';
+import AdminDokumenHukum from '../components/AdminDokumenHukum';
 
 // --- REUSABLE COMPONENTS ---
 
@@ -852,6 +854,7 @@ const ManajemenUserPage = () => {
 const PengaduanPage = () => {
   const [reportList, setReportList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewReport, setViewReport] = useState<any>(null);
 
   useEffect(() => {
     async function fetchReports() {
@@ -878,6 +881,13 @@ const PengaduanPage = () => {
     },
     { key: 'status', label: 'Status', render: (val: string) => <StatusBadge status={val} /> },
     { key: 'created_at', label: 'Tanggal', render: (val: string) => new Date(val).toLocaleDateString('id-ID') },
+    {
+      key: 'id', label: 'Aksi', render: (val: string, row: any) => (
+        <button onClick={() => setViewReport(row)} className="text-[11px] bg-[#EEF0FF] text-[#003087] px-3 py-1.5 rounded-lg font-bold hover:bg-[#003087] hover:text-white transition-colors">
+          Lihat Detail
+        </button>
+      )
+    }
   ];
 
   if (loading) return (
@@ -895,6 +905,104 @@ const PengaduanPage = () => {
         <StatCard icon={<FileText size={18} />} label="Diproses" value={reportList.filter(r => r.status === 'Diproses').length.toString()} color="#003087" />
       </div>
       <DataTable columns={columns} data={reportList} />
+
+      {/* Detail Modal */}
+      {viewReport && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA]">
+              <h3 className="font-bold text-[#0D1B3E] text-[16px]">Detail Laporan: {viewReport.id}</h3>
+              <button onClick={() => setViewReport(null)} className="text-[#8899AA] hover:text-[#0D1B3E]"><X size={18} /></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6 text-[13px]">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-[#8899AA] font-bold text-[10px] mb-1">Tanggal Masuk</div>
+                  <div className="font-medium">{new Date(viewReport.created_at).toLocaleString('id-ID')}</div>
+                </div>
+                <div>
+                  <div className="text-[#8899AA] font-bold text-[10px] mb-1">Status Laporan</div>
+                  <StatusBadge status={viewReport.status} />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[#8899AA] font-bold text-[10px] mb-1">Judul Laporan</div>
+                <div className="text-[#0D1B3E] font-bold text-[15px]">{viewReport.title}</div>
+              </div>
+
+              <div className="bg-[#F4F6FA] p-4 rounded-lg space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[#8899AA] font-bold text-[10px] mb-0.5">Kategori</div>
+                    <div className="font-medium text-[#003087] uppercase tracking-wider text-[11px]">{viewReport.category}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#8899AA] font-bold text-[10px] mb-0.5">Pihak Terlapor</div>
+                    <div className="font-medium">{viewReport.terlapor || '-'}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4 pt-3 border-t border-[#E8EFF9]">
+                  <div>
+                    <div className="text-[#8899AA] font-bold text-[10px] mb-0.5">Nama Pelapor</div>
+                    <div className="font-medium">{viewReport.reporter_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#8899AA] font-bold text-[10px] mb-0.5">Email</div>
+                    <div className="font-medium">{viewReport.reporter_email || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#8899AA] font-bold text-[10px] mb-0.5">Telepon</div>
+                    <div className="font-medium">{viewReport.reporter_phone || '-'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[#8899AA] font-bold text-[10px] mb-2">Isi Laporan</div>
+                <div className="bg-white border border-[#E8EFF9] rounded-lg p-4 text-[#4A5568] whitespace-pre-wrap leading-relaxed shadow-sm">
+                  {viewReport.description}
+                </div>
+              </div>
+
+              {viewReport.attachments && viewReport.attachments.length > 0 && (
+                <div>
+                  <div className="text-[#8899AA] font-bold text-[10px] mb-2">Lampiran Bukti</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {viewReport.attachments.map((file: any, idx: number) => (
+                      <a
+                        key={idx}
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 p-3 border border-[#E8EFF9] rounded-lg hover:border-[#003087] hover:bg-[#EEF0FF] transition-colors group"
+                      >
+                        <div className="w-8 h-8 rounded bg-[#F4F6FA] flex items-center justify-center text-[#003087] group-hover:bg-white">
+                          <FileText size={14} />
+                        </div>
+                        <div className="overflow-hidden">
+                          <div className="font-bold text-[11px] text-[#0D1B3E] truncate">{file.name}</div>
+                          <div className="text-[10px] text-[#8899AA]">{(file.size / 1024).toFixed(1)} KB</div>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-[#E8EFF9] bg-[#F4F6FA] flex justify-end gap-2">
+              <button
+                onClick={() => setViewReport(null)}
+                className="px-4 py-2 border border-[#E8EFF9] text-[#0D1B3E] bg-white rounded-lg text-[12px] font-bold hover:bg-gray-50"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -963,478 +1071,6 @@ const VerifJurnalisPage = () => {
 };
 
 
-const InvestigasiPage = () => {
-  const [investigasiList, setInvestigasiList] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('Semua');
-  const [priorityFilter, setPriorityFilter] = useState('Semua');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedCase, setSelectedCase] = useState<any>(null);
-  const [newCase, setNewCase] = useState<any>({
-    title: '',
-    description: '',
-    journalist: '',
-    status: 'Draft',
-    priority: 'Sedang',
-    start_date: '',
-    target_date: '',
-    image_url: ''
-  });
-  const [caseImageFile, setCaseImageFile] = useState<File | null>(null);
-  const [caseImagePreview, setCaseImagePreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [editingCase, setEditingCase] = useState<any>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
-
-  async function fetchInvestigations() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('investigations')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) setInvestigasiList(data);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    fetchInvestigations();
-  }, []);
-
-  const filteredData = investigasiList.filter(item => {
-    const matchSearch = item.title.toLowerCase().includes(search.toLowerCase()) || (item.id && item.id.toLowerCase().includes(search.toLowerCase()));
-    const matchStatus = statusFilter === 'Semua' || item.status === statusFilter;
-    const matchPriority = priorityFilter === 'Semua' || item.priority === priorityFilter;
-    return matchSearch && matchStatus && matchPriority;
-  });
-
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
-  const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  const handleEditCase = (row: any) => {
-    setEditingCase(row);
-    setNewCase({
-      title: row.title,
-      description: row.description || '',
-      journalist: row.journalist || '',
-      status: row.status,
-      priority: row.priority,
-      start_date: row.start_date || '',
-      target_date: row.target_date || '',
-      image_url: row.image_url || ''
-    });
-    setCaseImagePreview(row.image_url || null);
-    setIsCreateModalOpen(true);
-  };
-
-  const handleDeleteCase = async (id: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus kasus investigasi ini?')) return;
-    try {
-      const { error } = await supabase
-        .from('investigations')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
-      fetchInvestigations();
-      alert('Kasus berhasil dihapus.');
-    } catch (err: any) {
-      alert('Gagal menghapus: ' + err.message);
-    }
-  };
-
-  const PriorityBadge = ({ priority }: { priority: string }) => {
-    let bg = '#F3F4F6', text = '#6B7280';
-    if (priority === 'Tinggi') { bg = '#FFEBEB'; text = '#C41A1A'; }
-    else if (priority === 'Sedang') { bg = '#FFF6E0'; text = '#C47A00'; }
-    else if (priority === 'Rendah') { bg = '#E8F5EE'; text = '#1A8C5B'; }
-    return <span className="px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: bg, color: text }}>{priority}</span>;
-  };
-
-  const handleSaveInvestigation = async () => {
-    if (!newCase.title) return;
-    setSaving(true);
-    try {
-      let imageUrl = '';
-
-      if (caseImageFile) {
-        const fileExt = caseImageFile.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `investigations/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('article-images')
-          .upload(filePath, caseImageFile);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('article-images')
-          .getPublicUrl(filePath);
-
-        imageUrl = publicUrl;
-      }
-
-      if (editingCase) {
-        const { error } = await supabase
-          .from('investigations')
-          .update({
-            title: newCase.title,
-            description: newCase.description,
-            journalist: newCase.journalist,
-            status: newCase.status,
-            priority: newCase.priority,
-            start_date: newCase.start_date,
-            target_date: newCase.target_date,
-            image_url: imageUrl || newCase.image_url,
-          })
-          .eq('id', editingCase.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('investigations')
-          .insert([{
-            id: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-            title: newCase.title,
-            description: newCase.description,
-            journalist: newCase.journalist,
-            status: newCase.status,
-            priority: newCase.priority,
-            start_date: newCase.start_date,
-            target_date: newCase.target_date,
-            image_url: imageUrl,
-            created_at: new Date().toISOString()
-          }]);
-        if (error) throw error;
-      }
-
-      setIsCreateModalOpen(false);
-      setEditingCase(null);
-      setNewCase({
-        title: '',
-        description: '',
-        journalist: '',
-        status: 'Draft',
-        priority: 'Sedang',
-        start_date: '',
-        target_date: '',
-        image_url: ''
-      });
-      setCaseImageFile(null);
-      setCaseImagePreview(null);
-      fetchInvestigations();
-      alert('Kasus investigasi berhasil dibuat!');
-    } catch (err: any) {
-      alert('Gagal menyimpan kasus: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading && investigasiList.length === 0) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-8 h-8 animate-spin text-[#003087]" />
-    </div>
-  );
-
-  return (
-    <div className="space-y-4 relative">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => {
-              setEditingCase(null);
-              setNewCase({
-                title: '',
-                description: '',
-                journalist: '',
-                status: 'Draft',
-                priority: 'Sedang',
-                start_date: '',
-                target_date: '',
-                image_url: ''
-              });
-              setCaseImagePreview(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2"
-          >
-            <Plus size={14} /> Buat Kasus Baru
-          </button>
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-            <input type="text" placeholder="Cari ID/Judul..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[200px]" />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 bg-white border border-[#E8EFF9] rounded-[8px] px-3 py-2">
-            <Filter size={14} className="text-[#8899AA]" />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-[12px] outline-none bg-transparent text-[#0D1B3E] font-medium">
-              <option value="Semua">Semua Status</option>
-              <option value="Draft">Draft</option>
-              <option value="Review">Review</option>
-              <option value="Published">Terbit</option>
-              <option value="Aktif">Aktif</option>
-              <option value="Selesai">Selesai</option>
-              <option value="Arsip">Arsip</option>
-            </select>
-          </div>
-          <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-            <option value="Semua">Semua Prioritas</option>
-            <option value="Tinggi">Tinggi</option>
-            <option value="Sedang">Sedang</option>
-            <option value="Rendah">Rendah</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="bg-white border border-[#E8EFF9] rounded-[10px] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[12px]">
-            <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
-              <tr>
-                <th className="p-3">Judul Kasus</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Prioritas</th>
-                <th className="p-3">Tgl Mulai</th>
-                <th className="p-3">Tgl Target</th>
-                <th className="p-3 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E8EFF9]">
-              {paginatedData.length > 0 ? paginatedData.map((row, i) => (
-                <tr key={i} className="hover:bg-[#F4F6FA]/50 transition-colors group">
-                  <td className="p-3 font-bold text-[#0D1B3E] max-w-[250px] truncate cursor-pointer" onClick={() => setSelectedCase(row)}>{row.title}</td>
-                  <td className="p-3 cursor-pointer" onClick={() => setSelectedCase(row)}><StatusBadge status={row.status} /></td>
-                  <td className="p-3 cursor-pointer" onClick={() => setSelectedCase(row)}><PriorityBadge priority={row.priority} /></td>
-                  <td className="p-3 text-[#8899AA] cursor-pointer" onClick={() => setSelectedCase(row)}>{row.start_date || '-'}</td>
-                  <td className="p-3 text-[#8899AA] cursor-pointer" onClick={() => setSelectedCase(row)}>{row.target_date || '-'}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => handleEditCase(row)} className="p-1.5 text-[#003087] hover:bg-[#003087]/10 rounded transition-colors"><Edit size={14} /></button>
-                      <button onClick={() => handleDeleteCase(row.id)} className="p-1.5 text-[#E31B23] hover:bg-[#E31B23]/10 rounded transition-colors"><Trash2 size={14} /></button>
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan={5} className="p-6 text-center text-[#8899AA]">Tidak ada data yang ditemukan.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
-          <div>Menampilkan {paginatedData.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, filteredData.length)} dari {filteredData.length} data</div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronLeft size={14} /></button>
-            <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">{currentPage}</button>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"><ChevronRight size={14} /></button>
-          </div>
-        </div>
-      </div>
-
-      {selectedCase && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] flex justify-end">
-          <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[14px] text-[#0D1B3E]">Detail Investigasi</h2>
-              <button onClick={() => setSelectedCase(null)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
-              {selectedCase.image_url && (
-                <img src={selectedCase.image_url} alt={selectedCase.title} className="w-full aspect-video rounded-xl object-cover shadow-md mb-4" />
-              )}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <StatusBadge status={selectedCase.status} />
-                  <PriorityBadge priority={selectedCase.priority} />
-                </div>
-                <h3 className="text-[18px] font-black text-[#0D1B3E] leading-tight mb-3">{selectedCase.title}</h3>
-                <p className="text-[13px] text-[#4A5568] leading-relaxed mb-4">{selectedCase.description}</p>
-                <div className="text-[12px] font-bold text-[#0D1B3E] flex items-center gap-2">
-                  <User size={14} className="text-[#003087]" /> Jurnalis: {selectedCase.journalist || 'Belum ditugaskan'}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 bg-[#F4F6FA] p-4 rounded-[8px] border border-[#E8EFF9]">
-                <div>
-                  <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Mulai</div>
-                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12} /> {selectedCase.start_date || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-[#8899AA] uppercase font-bold mb-1">Target</div>
-                  <div className="text-[12px] font-semibold text-[#0D1B3E] flex items-center gap-1.5"><Calendar size={12} /> {selectedCase.target_date || '-'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CREATE MODAL */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
-            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E]">{editingCase ? 'Edit Kasus Investigasi' : 'Buat Kasus Investigasi Baru'}</h2>
-              <button onClick={() => setIsCreateModalOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="md:col-span-2">
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Kasus <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: Skandal Lahan Parkir..."
-                    value={newCase.title}
-                    onChange={e => setNewCase({ ...newCase, title: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Deskripsi Kasus</label>
-                  <textarea
-                    rows={4}
-                    placeholder="Ringkasan temuan awal atau fokus investigasi..."
-                    value={newCase.description}
-                    onChange={e => setNewCase({ ...newCase, description: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] resize-none"
-                  ></textarea>
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Jurnalis / Tim</label>
-                  <input
-                    type="text"
-                    placeholder="Nama Jurnalis..."
-                    value={newCase.journalist}
-                    onChange={e => setNewCase({ ...newCase, journalist: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Prioritas</label>
-                  <select
-                    value={newCase.priority}
-                    onChange={e => setNewCase({ ...newCase, priority: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
-                  >
-                    <option value="Tinggi">Tinggi</option>
-                    <option value="Sedang">Sedang</option>
-                    <option value="Rendah">Rendah</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Status</label>
-                  <select
-                    value={newCase.status}
-                    onChange={e => setNewCase({ ...newCase, status: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white"
-                  >
-                    <option value="Draft">Draft</option>
-                    <option value="Review">Review</option>
-                    <option value="Published">Published</option>
-                    <option value="Aktif">Aktif</option>
-                    <option value="Selesai">Selesai</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tanggal Mulai</label>
-                  <input
-                    type="date"
-                    value={newCase.start_date}
-                    onChange={e => setNewCase({ ...newCase, start_date: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tanggal Target</label>
-                  <input
-                    type="date"
-                    value={newCase.target_date}
-                    onChange={e => setNewCase({ ...newCase, target_date: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]"
-                  />
-                </div>
-
-                <div className="md:col-span-2 pt-2">
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-2 uppercase tracking-wider">Foto Bukti / Cover Kasus</label>
-                  <div
-                    className="border-2 border-dashed border-[#E8EFF9] rounded-xl p-6 text-center hover:border-[#003087] transition-all cursor-pointer bg-gray-50 relative overflow-hidden"
-                    onClick={() => document.getElementById('case-image-upload')?.click()}
-                  >
-                    {caseImagePreview ? (
-                      <div className="relative group">
-                        <img src={caseImagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg shadow-md" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
-                          <span className="text-white text-xs font-bold">Ganti Foto</span>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setCaseImageFile(null); setCaseImagePreview(null); }}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg hover:bg-red-600 transition-colors"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="py-4">
-                        <UploadCloud size={40} className="mx-auto text-[#8899AA] mb-3" />
-                        <p className="text-[13px] font-bold text-[#0D1B3E]">Klik atau tarik foto ke sini</p>
-                        <p className="text-[11px] text-[#8899AA] mt-1">Upload foto pendukung untuk investigasi ini</p>
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      id="case-image-upload"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setCaseImageFile(file);
-                          setCaseImagePreview(URL.createObjectURL(file));
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-[#E8EFF9] flex justify-end gap-3 bg-[#F4F6FA] shrink-0">
-              <button
-                onClick={() => setIsCreateModalOpen(false)}
-                disabled={saving}
-                className="px-6 py-2.5 rounded-[8px] text-[13px] font-bold text-[#8899AA] hover:bg-gray-200 transition-colors disabled:opacity-50"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleSaveInvestigation}
-                disabled={!newCase.title || saving}
-                className="bg-[#003087] text-white px-8 py-2.5 rounded-[8px] text-[13px] font-bold hover:bg-[#002566] transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg"
-              >
-                {saving ? (
-                  <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
-                ) : (
-                  editingCase ? 'Simpan Perubahan' : 'Buat Kasus'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 
 // RAG documents are now fetched from Supabase
@@ -1594,6 +1230,46 @@ const KnowledgeRAGPage = () => {
     }
   };
 
+  const handleAutoCrawlJDIHN = async () => {
+    setIsCrawling(true);
+    setCrawlProgress('Memulai auto-crawl JDIHN...');
+    try {
+      const result = await crawlJDIHN(10, (status, current, total) => {
+        if (total > 0) {
+          setCrawlProgress(`${status} (${current}/${total})`);
+        } else {
+          setCrawlProgress(status);
+        }
+      });
+      setCrawlProgress(`JDIHN Selesai! Ditemukan: ${result.discovered}, Diindeks: ${result.indexed}, Sudah ada: ${result.skipped}, Gagal: ${result.errors}`);
+      fetchDocs();
+    } catch (err: any) {
+      setCrawlProgress(`Error JDIHN: ${err.message}`);
+    } finally {
+      setIsCrawling(false);
+    }
+  };
+
+  const handleCrawlHukumOnline = async () => {
+    setIsCrawling(true);
+    setCrawlProgress('Memulai crawl HukumOnline Putusan...');
+    try {
+      const result = await crawlHukumOnline(20, (status, current, total) => {
+        if (total > 0) {
+          setCrawlProgress(`${status} (${current}/${total})`);
+        } else {
+          setCrawlProgress(status);
+        }
+      });
+      setCrawlProgress(`HukumOnline Selesai! Ditemukan: ${result.discovered}, Diindeks: ${result.indexed}, Sudah ada: ${result.skipped}, Gagal: ${result.errors}`);
+      fetchDocs();
+    } catch (err: any) {
+      setCrawlProgress(`Error HukumOnline: ${err.message}`);
+    } finally {
+      setIsCrawling(false);
+    }
+  };
+
   const filteredDocs = docs.filter(doc => {
     const matchSearch = doc.name.toLowerCase().includes(search.toLowerCase());
     const matchType = typeFilter === 'Semua' || doc.type === typeFilter;
@@ -1685,6 +1361,20 @@ const KnowledgeRAGPage = () => {
               >
                 {isCrawling ? <><Loader2 size={14} className="animate-spin" /> Crawling...</> : <><Bot size={14} /> Auto Crawl UU</>}
               </button>
+              <button
+                onClick={handleAutoCrawlJDIHN}
+                disabled={isCrawling}
+                className="bg-[#10B981] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-[#059669] disabled:opacity-50"
+              >
+                {isCrawling ? <><Loader2 size={14} className="animate-spin" /> Crawling...</> : <><Search size={14} /> Auto Crawl JDIHN</>}
+              </button>
+              <button
+                onClick={handleCrawlHukumOnline}
+                disabled={isCrawling}
+                className="bg-[#F59E0B] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2 hover:bg-[#D97706] disabled:opacity-50"
+              >
+                {isCrawling ? <><Loader2 size={14} className="animate-spin" /> Crawling...</> : <><Globe size={14} /> Crawl HukumOnline</>}
+              </button>
               {(syncProgress || crawlProgress) && (
                 <span className="text-[11px] text-[#4A148C] font-medium bg-[#F3E8FF] px-3 py-1.5 rounded-[8px] max-w-[300px] truncate">
                   {crawlProgress || syncProgress}
@@ -1727,6 +1417,7 @@ const KnowledgeRAGPage = () => {
                     <th className="p-3">Status</th>
                     <th className="p-3">Chunks</th>
                     <th className="p-3">Tgl Upload</th>
+                    <th className="p-3">Sumber</th>
                     <th className="p-3 text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -1739,6 +1430,7 @@ const KnowledgeRAGPage = () => {
                       <td className="p-3"><RAGStatusBadge status={row.status} progress={row.progress} /></td>
                       <td className="p-3 text-[#8899AA]">{row.chunks_count > 0 ? row.chunks_count.toLocaleString() : '-'}</td>
                       <td className="p-3 text-[#8899AA]">{row.created_at ? new Date(row.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+                      <td className="p-3">{row.metadata?.url ? <a href={row.metadata.url} target="_blank" rel="noopener noreferrer" className="text-[#003087] hover:underline text-[11px] truncate block max-w-[150px]" title={row.metadata.url}>{new URL(row.metadata.url).hostname.replace('www.', '')}</a> : <span className="text-[#8899AA]">-</span>}</td>
                       <td className="p-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button onClick={() => handleReindex(row.id)} className="text-[#8899AA] hover:text-[#003087]" title="Re-index"><RefreshCw size={14} /></button>
@@ -1749,7 +1441,7 @@ const KnowledgeRAGPage = () => {
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-[#8899AA]">Tidak ada dokumen yang ditemukan.</td>
+                      <td colSpan={8} className="p-6 text-center text-[#8899AA]">Tidak ada dokumen yang ditemukan.</td>
                     </tr>
                   )}
                 </tbody>
@@ -2202,361 +1894,6 @@ const AILegalConfigPage = () => {
         )}
 
       </div>
-    </div>
-  );
-};
-
-const dummyLegalDocs = [
-  {
-    id: 1,
-    title: 'Kitab Undang-Undang Hukum Pidana (KUHP)',
-    category: 'UU',
-    number: '1',
-    year: '2023',
-    status: 'Aktif',
-    agency: 'DPR RI & Pemerintah',
-    tags: ['Pidana', 'Reformasi Hukum'],
-    file: 'kuhp_2023.pdf',
-    replaces: null,
-    replacedBy: null
-  },
-  {
-    id: 2,
-    title: 'Undang-Undang tentang Cipta Kerja',
-    category: 'UU',
-    number: '11',
-    year: '2020',
-    status: 'Direvisi',
-    agency: 'DPR RI',
-    tags: ['Ekonomi', 'Investigasi', 'Ketenagakerjaan'],
-    file: 'uu_11_2020.pdf',
-    replaces: null,
-    replacedBy: 'UU No. 6 Tahun 2023'
-  },
-  {
-    id: 3,
-    title: 'Undang-Undang tentang Penetapan Peraturan Pemerintah Pengganti Undang-Undang Nomor 2 Tahun 2022 tentang Cipta Kerja menjadi Undang-Undang',
-    category: 'UU',
-    number: '6',
-    year: '2023',
-    status: 'Aktif',
-    agency: 'DPR RI',
-    tags: ['Ekonomi', 'Cipta Kerja'],
-    file: 'uu_6_2023.pdf',
-    replaces: 'UU No. 11 Tahun 2020',
-    replacedBy: null
-  },
-  {
-    id: 4,
-    title: 'Peraturan Pemerintah tentang Penyelenggaraan Bidang Perumahan',
-    category: 'PP',
-    number: '12',
-    year: '2021',
-    status: 'Aktif',
-    agency: 'Kementerian PUPR',
-    tags: ['Properti', 'Perumahan'],
-    file: 'pp_12_2021.pdf',
-    replaces: null,
-    replacedBy: null
-  },
-  {
-    id: 5,
-    title: 'Peraturan Daerah Provinsi DKI Jakarta tentang Penanggulangan Corona Virus Disease 2019',
-    category: 'Perda',
-    number: '2',
-    year: '2020',
-    status: 'Dicabut',
-    agency: 'DPRD DKI Jakarta',
-    tags: ['Kesehatan', 'Pandemi'],
-    file: 'perda_2_2020.pdf',
-    replaces: null,
-    replacedBy: 'Perda No. 5 Tahun 2022'
-  },
-  {
-    id: 6,
-    title: 'Putusan Mahkamah Konstitusi terkait Syarat Usia Capres-Cawapres',
-    category: 'Putusan',
-    number: '90/PUU-XXI/2023',
-    year: '2023',
-    status: 'Aktif',
-    agency: 'Mahkamah Konstitusi',
-    tags: ['Pemilu', 'Konstitusi'],
-    file: 'putusan_mk_90_2023.pdf',
-    replaces: null,
-    replacedBy: null
-  }
-];
-
-const DokumenHukumPage = () => {
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('Semua');
-  const [statusFilter, setStatusFilter] = useState('Semua');
-  const [yearFilter, setYearFilter] = useState('Semua');
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [selectedDocs, setSelectedDocs] = useState<number[]>([]);
-  const [sortConfig, setSortConfig] = useState({ key: 'year', direction: 'desc' });
-
-  const filteredDocs = dummyLegalDocs.filter(doc => {
-    const matchSearch = doc.title.toLowerCase().includes(search.toLowerCase()) || doc.number.toLowerCase().includes(search.toLowerCase());
-    const matchCategory = categoryFilter === 'Semua' || doc.category === categoryFilter;
-    const matchStatus = statusFilter === 'Semua' || doc.status === statusFilter;
-    const matchYear = yearFilter === 'Semua' || doc.year === yearFilter;
-    return matchSearch && matchCategory && matchStatus && matchYear;
-  });
-
-  const handleSort = (key: string) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const sortedDocs = [...filteredDocs].sort((a: any, b: any) => {
-    if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-    if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const toggleSelectAll = () => {
-    if (selectedDocs.length === sortedDocs.length) {
-      setSelectedDocs([]);
-    } else {
-      setSelectedDocs(sortedDocs.map(d => d.id));
-    }
-  };
-
-  const toggleSelect = (id: number) => {
-    if (selectedDocs.includes(id)) {
-      setSelectedDocs(selectedDocs.filter(item => item !== id));
-    } else {
-      setSelectedDocs([...selectedDocs, id]);
-    }
-  };
-
-  const LegalStatusBadge = ({ status }: { status: string }) => {
-    let bg = '#F3F4F6', text = '#6B7280';
-    if (status === 'Aktif') { bg = '#E8F5EE'; text = '#1A8C5B'; }
-    else if (status === 'Dicabut') { bg = '#FFEBEB'; text = '#C41A1A'; }
-    else if (status === 'Direvisi') { bg = '#FFF6E0'; text = '#C47A00'; }
-    return <span className="px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: bg, color: text }}>{status}</span>;
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Stats Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<FileCheck size={18} />} label="Total Dokumen" value="4,821" color="#003087" />
-        <StatCard icon={<Layers size={18} />} label="Undang-Undang (UU)" value="1,240" color="#4A148C" />
-        <StatCard icon={<FilePlus size={18} />} label="Dokumen Bulan Ini" value="42" trend={15} color="#10B981" />
-        <StatCard icon={<Ban size={18} />} label="Dicabut/Direvisi" value="382" color="#E31B23" />
-      </div>
-
-      {/* Toolbar */}
-      <div className="bg-white p-4 rounded-[10px] border border-[#E8EFF9] shadow-sm space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setIsUploadModalOpen(true)} className="bg-[#003087] text-white px-4 py-2 rounded-[8px] text-[12px] font-bold flex items-center gap-2">
-              <FilePlus size={14} /> Upload Dokumen Baru
-            </button>
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8899AA]" />
-              <input
-                type="text"
-                placeholder="Cari judul atau nomor..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9 pr-4 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none focus:border-[#003087] w-[250px]"
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-              <option value="Semua">Semua Kategori</option>
-              <option value="UU">UU</option>
-              <option value="PP">PP</option>
-              <option value="Perda">Perda</option>
-              <option value="Putusan">Putusan</option>
-              <option value="Regulasi">Regulasi</option>
-            </select>
-            <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-              <option value="Semua">Semua Tahun</option>
-              <option value="2024">2024</option>
-              <option value="2023">2023</option>
-              <option value="2022">2022</option>
-              <option value="2021">2021</option>
-              <option value="2020">2020</option>
-            </select>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-[8px] border border-[#E8EFF9] text-[12px] outline-none bg-white font-medium text-[#0D1B3E]">
-              <option value="Semua">Semua Status</option>
-              <option value="Aktif">Aktif</option>
-              <option value="Dicabut">Dicabut</option>
-              <option value="Direvisi">Direvisi</option>
-            </select>
-          </div>
-        </div>
-
-        {selectedDocs.length > 0 && (
-          <div className="flex items-center justify-between bg-[#EEF0FF] p-2 rounded-[8px] border border-[#D1D5DB] animate-in fade-in slide-in-from-top-2">
-            <div className="text-[11px] font-bold text-[#003087] ml-2">{selectedDocs.length} dokumen terpilih</div>
-            <div className="flex items-center gap-2">
-              <button className="px-3 py-1.5 bg-white border border-[#D1D5DB] text-[#0D1B3E] rounded-[6px] text-[11px] font-bold flex items-center gap-1.5 hover:bg-gray-50">
-                <FileDown size={14} /> Export CSV
-              </button>
-              <button className="px-3 py-1.5 bg-[#FFEBEB] border border-[#FFCDD2] text-[#C41A1A] rounded-[6px] text-[11px] font-bold flex items-center gap-1.5 hover:bg-red-50">
-                <Trash size={14} /> Hapus Permanen
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Table Section */}
-      <div className="bg-white border border-[#E8EFF9] rounded-[10px] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-[12px]">
-            <thead className="bg-[#F4F6FA] text-[#8899AA] uppercase text-[10px] font-bold">
-              <tr>
-                <th className="p-3 w-10 text-center">
-                  <input
-                    type="checkbox"
-                    className="rounded border-gray-300"
-                    checked={selectedDocs.length === sortedDocs.length && sortedDocs.length > 0}
-                    onChange={toggleSelectAll}
-                  />
-                </th>
-                <th className="p-3 cursor-pointer hover:text-[#0D1B3E]" onClick={() => handleSort('title')}>Judul Dokumen</th>
-                <th className="p-3 cursor-pointer hover:text-[#0D1B3E]" onClick={() => handleSort('category')}>Kategori</th>
-                <th className="p-3">Nomor & Tahun</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Penerbit</th>
-                <th className="p-3 text-center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E8EFF9]">
-              {sortedDocs.map((doc) => (
-                <tr key={doc.id} className={`hover:bg-[#F4F6FA]/50 transition-colors ${selectedDocs.includes(doc.id) ? 'bg-[#EEF0FF]/30' : ''}`}>
-                  <td className="p-3 text-center">
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300"
-                      checked={selectedDocs.includes(doc.id)}
-                      onChange={() => toggleSelect(doc.id)}
-                    />
-                  </td>
-                  <td className="p-3 max-w-[300px]">
-                    <div className="font-bold text-[#0D1B3E] leading-tight mb-1">{doc.title}</div>
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {doc.tags && doc.tags.map(tag => (
-                        <span key={tag} className={`text-[9px] px-1.5 py-0.5 font-bold text-[#003087] bg-[#003087]/5 border border-[#003087]/20 rounded-md uppercase tracking-tight`}>
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <span className="font-bold text-[#003087]">{doc.category}</span>
-                  </td>
-                  <td className="p-3">
-                    <div className="text-[#0D1B3E] font-medium">No. {doc.number}</div>
-                    <div className="text-[10px] text-[#8899AA]">Tahun {doc.year}</div>
-                  </td>
-                  <td className="p-3">
-                    <div className="space-y-1">
-                      <LegalStatusBadge status={doc.status} />
-                      {doc.replaces && <div className="text-[9px] text-[#8899AA] italic">Mengganti: {doc.replaces}</div>}
-                      {doc.replacedBy && <div className="text-[9px] text-[#C47A00] italic">Diganti: {doc.replacedBy}</div>}
-                    </div>
-                  </td>
-                  <td className="p-3 text-[#0D1B3E] text-[11px]">{doc.agency}</td>
-                  <td className="p-3">
-                    <div className="flex items-center justify-center gap-2">
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Preview/Buka"><Eye size={14} /></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Download PDF"><Download size={14} /></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#003087] hover:bg-[#EEF0FF] rounded transition-colors" title="Tandai Dicabut/Direvisi"><History size={14} /></button>
-                      <button className="p-1.5 text-[#8899AA] hover:text-[#0D1B3E] hover:bg-gray-100 rounded transition-colors"><MoreVertical size={14} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-3 border-t border-[#E8EFF9] flex items-center justify-between text-[11px] text-[#8899AA]">
-          <div>Menampilkan 1-{sortedDocs.length} dari 4,821 data</div>
-          <div className="flex items-center gap-1">
-            <button className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={14} /></button>
-            <button className="w-6 h-6 bg-[#003087] text-white rounded font-bold">1</button>
-            <button className="w-6 h-6 hover:bg-gray-100 rounded">2</button>
-            <button className="w-6 h-6 hover:bg-gray-100 rounded">3</button>
-            <button className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={14} /></button>
-          </div>
-        </div>
-      </div>
-
-      {/* Upload Modal */}
-      {isUploadModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-[#E8EFF9] flex justify-between items-center bg-[#F4F6FA] shrink-0">
-              <h2 className="font-bold text-[16px] text-[#0D1B3E] flex items-center gap-2"><FilePlus size={18} /> Upload Dokumen Hukum Baru</h2>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-[#8899AA] hover:text-[#E31B23] p-1 rounded hover:bg-red-50 transition-colors"><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-5 custom-scrollbar">
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Judul Dokumen <span className="text-[#E31B23]">*</span></label>
-                <input type="text" placeholder="Masukkan judul lengkap dokumen..." className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Kategori <span className="text-[#E31B23]">*</span></label>
-                  <select className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087] bg-white">
-                    <option value="UU">Undang-Undang (UU)</option>
-                    <option value="PP">Peraturan Pemerintah (PP)</option>
-                    <option value="Perda">Peraturan Daerah (Perda)</option>
-                    <option value="Putusan">Putusan MK/MA</option>
-                    <option value="Regulasi">Regulasi Lainnya</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Nomor Dokumen <span className="text-[#E31B23]">*</span></label>
-                  <input type="text" placeholder="Contoh: 1" className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tahun <span className="text-[#E31B23]">*</span></label>
-                  <input type="number" placeholder="2025" className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Instansi Penerbit <span className="text-[#E31B23]">*</span></label>
-                <input type="text" placeholder="Contoh: DPR RI, Kementerian Hukum & HAM..." className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-              </div>
-
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">File Dokumen (PDF) <span className="text-[#E31B23]">*</span></label>
-                <div className="border-2 border-dashed border-[#E8EFF9] rounded-[10px] p-8 flex flex-col items-center justify-center bg-[#F4F6FA] hover:border-[#003087] transition-colors cursor-pointer group">
-                  <UploadCloud size={32} className="text-[#8899AA] group-hover:text-[#003087] mb-2" />
-                  <p className="text-[13px] font-bold text-[#0D1B3E]">Klik atau seret file PDF ke sini</p>
-                  <p className="text-[11px] text-[#8899AA]">Maksimal ukuran file 20MB</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[12px] font-bold text-[#0D1B3E] mb-1.5">Tags / Kata Kunci</label>
-                <input type="text" placeholder="Pisahkan dengan koma (contoh: Pidana, Korupsi, Ekonomi)" className="w-full px-3 py-2.5 rounded-[8px] border border-[#E8EFF9] text-[13px] outline-none focus:border-[#003087]" />
-              </div>
-            </div>
-            <div className="p-4 border-t border-[#E8EFF9] flex justify-end gap-3 bg-[#F4F6FA] shrink-0">
-              <button onClick={() => setIsUploadModalOpen(false)} className="px-4 py-2 border border-[#E8EFF9] bg-white text-[#0D1B3E] rounded-[8px] text-[12px] font-bold hover:bg-gray-50 transition-colors">Batal</button>
-              <button onClick={() => setIsUploadModalOpen(false)} className="px-6 py-2 bg-[#003087] text-white rounded-[8px] text-[12px] font-bold hover:bg-[#002266] transition-colors flex items-center gap-2">
-                <Save size={14} /> Simpan & Publikasi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -4201,7 +3538,7 @@ export default function AdminPanel() {
     'investigasi': <InvestigasiPage />,
     'knowledge-rag': <KnowledgeRAGPage />,
     'ai-legal-config': <AILegalConfigPage />,
-    'dokumen-hukum': <DokumenHukumPage />,
+    'dokumen-hukum': <AdminDokumenHukum />,
     'manajemen-user': <ManajemenUserPage />,
     'subscription': <SubscriptionPage />,
     'pengaduan': <PengaduanPage />,
